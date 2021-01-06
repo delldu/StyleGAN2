@@ -327,7 +327,7 @@ if __name__ == "__main__":
 
     parser.add_argument("path", type=str, help="path to the lmdb dataset")
     parser.add_argument(
-        "--iter", type=int, default=800000, help="total training iterations"
+        "--iter", type=int, default=100, help="total training iterations"
     )
     parser.add_argument(
         "--batch", type=int, default=16, help="batch sizes for each gpus"
@@ -374,7 +374,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ckpt",
         type=str,
-        default=None,
         help="path to the checkpoints to resume training",
     )
     parser.add_argument("--lr", type=float, default=0.002, help="learning rate")

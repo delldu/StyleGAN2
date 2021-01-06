@@ -79,7 +79,7 @@ if __name__ == "__main__":
         description="Image projector to the generator latent spaces"
     )
     parser.add_argument(
-        "--ckpt", type=str, default="checkpoints/stylegan2-ffhq-config-f.pth", help="path to the model checkpoint"
+        "--ckpt", type=str, default="checkpoint/stylegan2-ffhq-config-f.pth", help="path to the model checkpoint"
     )
     parser.add_argument(
         "--image-size", type=int, default=32, help="input image sizes of the generator"
@@ -155,7 +155,7 @@ if __name__ == "__main__":
         img = Image.open(imgfile).convert("RGB")
         lrimg = lrtransform(img)
         lrimg.save("sample/lr-{}".format(os.path.basename(imgfile)))
-        
+
         img = transform(img)
         imgs.append(img)
 

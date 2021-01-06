@@ -2,9 +2,22 @@ import argparse
 
 import torch
 from torchvision import utils
-
+from PIL import Image
 from model import Generator
+import pdb
 
+def make_image(tensor):
+    return (
+        tensor.detach()
+        .clamp_(min=-1, max=1)
+        .add(1)
+        .div_(2)
+        .mul(255)
+        .type(torch.uint8)
+        .permute(0, 2, 3, 1)
+        .to("cpu")
+        .numpy()
+    )
 
 if __name__ == "__main__":
     torch.set_grad_enabled(False)
@@ -27,12 +40,15 @@ if __name__ == "__main__":
         default=2,
         help='channel multiplier factor. config-f = 2, else = 1',
     )
-    parser.add_argument("--ckpt", type=str, required=True, help="stylegan2 checkpoints")
+    parser.add_argument("--ckpt", type=str, 
+        default="checkpoint/stylegan2-ffhq-config-f.pth",
+        help="stylegan2 checkpoints")
+
     parser.add_argument(
-        "--size", type=int, default=256, help="output image size of the generator"
+        "--size", type=int, default=1024, help="output image size of the generator"
     )
     parser.add_argument(
-        "-n", "--n_sample", type=int, default=7, help="number of samples created"
+        "-n", "--n_sample", type=int, default=3, help="number of samples created"
     )
     parser.add_argument(
         "--truncation", type=float, default=0.7, help="truncation factor"
@@ -47,8 +63,9 @@ if __name__ == "__main__":
         help="filename prefix to result samples",
     )
     parser.add_argument(
-        "factor",
+        "--factor",
         type=str,
+        default="checkpoint/factor.pth",
         help="name of the closed form factorization result factor file",
     )
 
@@ -72,6 +89,7 @@ if __name__ == "__main__":
         truncation_latent=trunc,
         input_is_latent=True,
     )
+
     img1, _ = g(
         [latent + direction],
         truncation=args.truncation,
@@ -87,8 +105,9 @@ if __name__ == "__main__":
 
     grid = utils.save_image(
         torch.cat([img1, img, img2], 0),
-        f"{args.out_prefix}_index-{args.index}_degree-{args.degree}.png",
+        f"sample/{args.out_prefix}_index-{args.index}_degree-{args.degree}.png",
         normalize=True,
         range=(-1, 1),
         nrow=args.n_sample,
     )
+
