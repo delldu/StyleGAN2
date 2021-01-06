@@ -79,10 +79,10 @@ if __name__ == "__main__":
         description="Image projector to the generator latent spaces"
     )
     parser.add_argument(
-        "--ckpt", type=str, required=True, help="path to the model checkpoint"
+        "--ckpt", type=str, default="checkpoints/stylegan2-ffhq-config-f.pth", help="path to the model checkpoint"
     )
     parser.add_argument(
-        "--size", type=int, default=256, help="output image sizes of the generator"
+        "--size", type=int, default=1024, help="output image sizes of the generator"
     )
     parser.add_argument(
         "--lr_rampup",
@@ -106,7 +106,7 @@ if __name__ == "__main__":
         default=0.75,
         help="duration of the noise level decay",
     )
-    parser.add_argument("--step", type=int, default=1000, help="optimize iterations")
+    parser.add_argument("--step", type=int, default=100, help="optimize iterations")
     parser.add_argument(
         "--noise_regularize",
         type=float,
@@ -225,7 +225,7 @@ if __name__ == "__main__":
 
     img_gen, _ = g_ema([latent_path[-1]], input_is_latent=True, noise=noises)
 
-    filename = os.path.splitext(os.path.basename(args.files[0]))[0] + ".pt"
+    filename = os.path.splitext("sample/" + os.path.basename(args.files[0]))[0] + ".pt"
 
     img_ar = make_image(img_gen)
 
@@ -241,7 +241,7 @@ if __name__ == "__main__":
             "noise": noise_single,
         }
 
-        img_name = os.path.splitext(os.path.basename(input_name))[0] + "-project.png"
+        img_name = os.path.splitext("sample/" + os.path.basename(input_name))[0] + "-project.png"
         pil_img = Image.fromarray(img_ar[i])
         pil_img.save(img_name)
 

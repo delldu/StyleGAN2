@@ -9,7 +9,7 @@ from torch.nn import functional as F
 from torch.autograd import Function
 
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
-
+import pdb
 
 class PixelNorm(nn.Module):
     def __init__(self):
@@ -440,12 +440,15 @@ class Generator(nn.Module):
     def make_noise(self):
         device = self.input.input.device
 
+        # dims = [2 ** 2]
         noises = [torch.randn(1, 1, 2 ** 2, 2 ** 2, device=device)]
 
         for i in range(3, self.log_size + 1):
             for _ in range(2):
                 noises.append(torch.randn(1, 1, 2 ** i, 2 ** i, device=device))
-
+                # dims.append(2 ** i)
+        # pdb.set_trace() -- len(noises) == 17
+        # [4, 8, 8, 16, 16, 32, 32, 64, 64, 128, 128, 256, 256, 512, 512, 1024, 1024]
         return noises
 
     def mean_latent(self, n_latent):
@@ -491,9 +494,13 @@ class Generator(nn.Module):
 
             styles = style_t
 
+        # pdb.set_trace()
+        # len(styles) -- 1
         if len(styles) < 2:
             inject_index = self.n_latent
 
+            # (Pdb) styles[0].size()
+            # torch.Size([1, 512])
             if styles[0].ndim < 3:
                 latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
 
@@ -509,6 +516,8 @@ class Generator(nn.Module):
 
             latent = torch.cat([latent, latent2], 1)
 
+        # (Pdb) latent.size()
+        # torch.Size([1, 18, 512])
         out = self.input(latent)
         out = self.conv1(out, latent[:, 0], noise=noise[0])
 
