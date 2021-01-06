@@ -10,7 +10,7 @@ from PIL import Image
 from tqdm import tqdm
 
 import lpips
-from model import Generator
+from model import Generator, StyleVAEModel
 
 
 def noise_regularize(noises):
@@ -79,7 +79,7 @@ if __name__ == "__main__":
         description="Image projector to the generator latent spaces"
     )
     parser.add_argument(
-        "--ckpt", type=str, default="checkpoint/stylegan2-ffhq-config-f.pth", help="path to the model checkpoint"
+        "--ckpt", type=str, default="models/stylegan2-ffhq-config-f.pth", help="path to the model checkpoint"
     )
     parser.add_argument(
         "--image-size", type=int, default=32, help="input image sizes of the generator"
@@ -161,92 +161,105 @@ if __name__ == "__main__":
 
     imgs = torch.stack(imgs, 0).to(device)
 
-    g_ema = Generator(args.size, 512, 8)
-    g_ema.load_state_dict(torch.load(args.ckpt)["g_ema"], strict=False)
-    g_ema.eval()
-    g_ema = g_ema.to(device)
-
-    with torch.no_grad():
-        noise_sample = torch.randn(n_mean_latent, 512, device=device)
-        latent_out = g_ema.style(noise_sample)
-
-        latent_mean = latent_out.mean(0)
-        latent_std = ((latent_out - latent_mean).pow(2).sum() / n_mean_latent) ** 0.5
-
-    percept = lpips.PerceptualLoss(
-        model="net-lin", net="vgg", use_gpu=device.startswith("cuda")
-    )
-
-    noises_single = g_ema.make_noise()
-    noises = []
-    for noise in noises_single:
-        noises.append(noise.repeat(imgs.shape[0], 1, 1, 1).normal_())
-
-    latent_in = latent_mean.detach().clone().unsqueeze(0).repeat(imgs.shape[0], 1)
-
-    if args.w_plus:
-        latent_in = latent_in.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
-
-    latent_in.requires_grad = True
-
-    for noise in noises:
-        noise.requires_grad = True
-
-    optimizer = optim.Adam([latent_in] + noises, lr=args.lr)
-
-    pbar = tqdm(range(args.step))
-    latent_path = []
-
-    for i in pbar:
-        t = i / args.step
-        lr = get_lr(t, args.lr)
-        optimizer.param_groups[0]["lr"] = lr
-        noise_strength = latent_std * args.noise * max(0, 1 - t / args.noise_ramp) ** 2
-        latent_n = latent_noise(latent_in, noise_strength.item())
-
-        img_gen, _ = g_ema([latent_n], input_is_latent=True, noise=noises)
-
-        batch, channel, height, width = img_gen.shape
-
-        if height > resize:
-            factor = height // resize
-
-            img_gen = img_gen.reshape(
-                batch, channel, height // factor, factor, width // factor, factor
-            )
-            img_gen = img_gen.mean([3, 5])
-
-        p_loss = percept(img_gen, imgs).sum()
-        n_loss = noise_regularize(noises)
-        mse_loss = F.mse_loss(img_gen, imgs)
-
-        loss = p_loss + args.noise_regularize * n_loss + args.mse * mse_loss
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        noise_normalize_(noises)
-
-        if (i + 1) % 100 == 0 or (i + 1) == args.step:
-            latent_path.append(latent_in.detach().clone())
-
-        pbar.set_description(
-            (
-                f"perceptual: {p_loss.item():.4f}; noise regularize: {n_loss.item():.4f};"
-                f" mse: {mse_loss.item():.4f}; lr: {lr:.4f}"
-            )
-        )
-
-    img_gen, _ = g_ema([latent_path[-1]], input_is_latent=True, noise=noises)
-
+    model = StyleVAEModel()
+    best_latent, best_noises = model.encode(imgs)
+    img_gen = model.decode(best_latent, noises=None)
     filename = os.path.splitext("sample/" + os.path.basename(args.files[0]))[0] + ".pt"
-
     img_ar = make_image(img_gen)
-
     # result_file = {}
     for i, input_name in enumerate(args.files):
         img_name = os.path.splitext("sample/" + os.path.basename(input_name))[0] + "-project.png"
         pil_img = Image.fromarray(img_ar[i])
         pil_img.save(img_name)
+
+
+
+    # g_ema = Generator(args.size, 512, 8)
+    # g_ema.load_state_dict(torch.load(args.ckpt)["g_ema"], strict=False)
+    # g_ema.eval()
+    # g_ema = g_ema.to(device)
+
+    # with torch.no_grad():
+    #     noise_sample = torch.randn(n_mean_latent, 512, device=device)
+    #     latent_out = g_ema.style(noise_sample)
+
+    #     latent_mean = latent_out.mean(0)
+    #     latent_std = ((latent_out - latent_mean).pow(2).sum() / n_mean_latent) ** 0.5
+    # latent_in = latent_mean.detach().clone().unsqueeze(0).repeat(imgs.shape[0], 1)
+    # latent_in.requires_grad = True
+
+    # percept = lpips.PerceptualLoss(
+    #     model="net-lin", net="vgg", use_gpu=device.startswith("cuda")
+    # )
+
+    # noises = []
+    # for noise in g_ema.make_noise():
+    #     normal_noise = noise.repeat(imgs.shape[0], 1, 1, 1).normal_()
+    #     normal_noise.requires_grad = True
+    #     noises.append(normal_noise)
+
+
+    # if args.w_plus:
+    #     latent_in = latent_in.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
+
+
+
+
+    # optimizer = optim.Adam([latent_in] + noises, lr=args.lr)
+
+    # pbar = tqdm(range(args.step))
+    # latent_path = []
+
+    # for i in pbar:
+    #     t = i / args.step
+    #     lr = get_lr(t, args.lr)
+    #     optimizer.param_groups[0]["lr"] = lr
+    #     noise_strength = latent_std * args.noise * max(0, 1 - t / args.noise_ramp) ** 2
+    #     latent_n = latent_noise(latent_in, noise_strength.item())
+
+    #     img_gen, _ = g_ema([latent_n], input_is_latent=True, noise=noises)
+
+    #     batch, channel, height, width = img_gen.shape
+
+    #     if height > resize:
+    #         factor = height // resize
+
+    #         img_gen = img_gen.reshape(
+    #             batch, channel, height // factor, factor, width // factor, factor
+    #         )
+    #         img_gen = img_gen.mean([3, 5])
+
+    #     p_loss = percept(img_gen, imgs).sum()
+    #     n_loss = noise_regularize(noises)
+    #     mse_loss = F.mse_loss(img_gen, imgs)
+
+    #     loss = p_loss + args.noise_regularize * n_loss + args.mse * mse_loss
+
+    #     optimizer.zero_grad()
+    #     loss.backward()
+    #     optimizer.step()
+
+    #     noise_normalize_(noises)
+
+    #     if (i + 1) % 100 == 0 or (i + 1) == args.step:
+    #         latent_path.append(latent_in.detach().clone())
+
+    #     pbar.set_description(
+    #         (
+    #             f"perceptual: {p_loss.item():.4f}; noise regularize: {n_loss.item():.4f};"
+    #             f" mse: {mse_loss.item():.4f}; lr: {lr:.4f}"
+    #         )
+    #     )
+
+    # img_gen, _ = g_ema([latent_path[-1]], input_is_latent=True, noise=noises)
+
+    # filename = os.path.splitext("sample/" + os.path.basename(args.files[0]))[0] + ".pt"
+
+    # img_ar = make_image(img_gen)
+
+    # # result_file = {}
+    # for i, input_name in enumerate(args.files):
+    #     img_name = os.path.splitext("sample/" + os.path.basename(input_name))[0] + "-project.png"
+    #     pil_img = Image.fromarray(img_ar[i])
+    #     pil_img.save(img_name)
 

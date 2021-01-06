@@ -98,7 +98,7 @@ class vgg16(torch.nn.Module):
     def __init__(self, requires_grad=False, pretrained=True):
         super(vgg16, self).__init__()
         model = tv.vgg16(pretrained=False)
-        model.load_state_dict(torch.load("checkpoint/vgg16-397923af.pth"), strict=False)
+        model.load_state_dict(torch.load("models/vgg16-397923af.pth"), strict=False)
         vgg_pretrained_features = model.features
         self.slice1 = torch.nn.Sequential()
         self.slice2 = torch.nn.Sequential()

@@ -77,37 +77,43 @@ if __name__ == "__main__":
     g.load_state_dict(ckpt["g_ema"], strict=False)
 
     trunc = g.mean_latent(4096)
+    # (Pdb) trunc.size()
+    # torch.Size([1, 512])
 
     latent = torch.randn(args.n_sample, 512, device=args.device)
     latent = g.get_latent(latent)
+    # (Pdb) latent.size()
+    # torch.Size([3, 512])
 
-    direction = args.degree * eigvec[:, args.index].unsqueeze(0)
+    for args.index in range(0, 32):
+        direction = args.degree * eigvec[:, args.index].unsqueeze(0)
+        # (Pdb) direction.size()
+        # torch.Size([1, 512])
+        img, _ = g(
+            [latent],
+            truncation=args.truncation,
+            truncation_latent=trunc,
+            input_is_latent=True,
+        )
 
-    img, _ = g(
-        [latent],
-        truncation=args.truncation,
-        truncation_latent=trunc,
-        input_is_latent=True,
-    )
+        img1, _ = g(
+            [latent + direction],
+            truncation=args.truncation,
+            truncation_latent=trunc,
+            input_is_latent=True,
+        )
+        img2, _ = g(
+            [latent - direction],
+            truncation=args.truncation,
+            truncation_latent=trunc,
+            input_is_latent=True,
+        )
 
-    img1, _ = g(
-        [latent + direction],
-        truncation=args.truncation,
-        truncation_latent=trunc,
-        input_is_latent=True,
-    )
-    img2, _ = g(
-        [latent - direction],
-        truncation=args.truncation,
-        truncation_latent=trunc,
-        input_is_latent=True,
-    )
-
-    grid = utils.save_image(
-        torch.cat([img1, img, img2], 0),
-        f"sample/{args.out_prefix}_index-{args.index}_degree-{args.degree}.png",
-        normalize=True,
-        range=(-1, 1),
-        nrow=args.n_sample,
-    )
+        grid = utils.save_image(
+            torch.cat([img1, img, img2], 0),
+            f"sample/{args.out_prefix}_index-{args.index}_degree-{args.degree}.png",
+            normalize=True,
+            range=(-1, 1),
+            nrow=args.n_sample,
+        )
 

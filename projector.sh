@@ -1,6 +1,4 @@
-for f in face/0*[5-9].png ; do
+for f in dataset/face/0*[5-9].png ; do
 	echo $f
-	python projector.py \
-		--ckpt checkpoint/stylegan2-ffhq-config-f.pth \
-		$f
+	python projector.py --image-size 256 $f
 done

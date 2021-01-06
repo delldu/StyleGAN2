@@ -1,15 +1,23 @@
 import math
 import random
-import functools
-import operator
+import os
+from pathlib import Path
+
+import lpips
 
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torch.autograd import Function
+
+import torchvision.utils as utils
+from PIL import Image
 
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
 import pdb
+from torch import optim
+
+from tqdm import tqdm
+
 
 class PixelNorm(nn.Module):
     def __init__(self):
@@ -139,7 +147,6 @@ class EqualLinear(nn.Module):
 
         if bias:
             self.bias = nn.Parameter(torch.zeros(out_dim).fill_(bias_init))
-
         else:
             self.bias = None
 
@@ -152,7 +159,6 @@ class EqualLinear(nn.Module):
         if self.activation:
             out = F.linear(input, self.weight * self.scale)
             out = fused_leaky_relu(out, self.bias * self.lr_mul)
-
         else:
             out = F.linear(
                 input, self.weight * self.scale, bias=self.bias * self.lr_mul
@@ -172,7 +178,7 @@ class ModulatedConv2d(nn.Module):
         in_channel,
         out_channel,
         kernel_size,
-        style_dim,
+        z_space_dim,
         demodulate=True,
         upsample=False,
         downsample=False,
@@ -211,7 +217,7 @@ class ModulatedConv2d(nn.Module):
             torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
         )
 
-        self.modulation = EqualLinear(style_dim, in_channel, bias_init=1)
+        self.modulation = EqualLinear(z_space_dim, in_channel, bias_init=1)
 
         self.demodulate = demodulate
 
@@ -298,7 +304,7 @@ class StyledConv(nn.Module):
         in_channel,
         out_channel,
         kernel_size,
-        style_dim,
+        z_space_dim,
         upsample=False,
         blur_kernel=[1, 3, 3, 1],
         demodulate=True,
@@ -309,7 +315,7 @@ class StyledConv(nn.Module):
             in_channel,
             out_channel,
             kernel_size,
-            style_dim,
+            z_space_dim,
             upsample=upsample,
             blur_kernel=blur_kernel,
             demodulate=demodulate,
@@ -330,13 +336,13 @@ class StyledConv(nn.Module):
 
 
 class ToRGB(nn.Module):
-    def __init__(self, in_channel, style_dim, upsample=True, blur_kernel=[1, 3, 3, 1]):
+    def __init__(self, in_channel, z_space_dim, upsample=True, blur_kernel=[1, 3, 3, 1]):
         super().__init__()
 
         if upsample:
             self.upsample = Upsample(blur_kernel)
 
-        self.conv = ModulatedConv2d(in_channel, 3, 1, style_dim, demodulate=False)
+        self.conv = ModulatedConv2d(in_channel, 3, 1, z_space_dim, demodulate=False)
         self.bias = nn.Parameter(torch.zeros(1, 3, 1, 1))
 
     def forward(self, input, style, skip=None):
@@ -355,7 +361,7 @@ class Generator(nn.Module):
     def __init__(
         self,
         size,
-        style_dim,
+        z_space_dim,
         n_mlp,
         channel_multiplier=2,
         blur_kernel=[1, 3, 3, 1],
@@ -365,14 +371,14 @@ class Generator(nn.Module):
 
         self.size = size
 
-        self.style_dim = style_dim
+        self.z_space_dim = z_space_dim
 
         layers = [PixelNorm()]
 
         for i in range(n_mlp):
             layers.append(
                 EqualLinear(
-                    style_dim, style_dim, lr_mul=lr_mlp, activation="fused_lrelu"
+                    z_space_dim, z_space_dim, lr_mul=lr_mlp, activation="fused_lrelu"
                 )
             )
 
@@ -392,9 +398,9 @@ class Generator(nn.Module):
 
         self.input = ConstantInput(self.channels[4])
         self.conv1 = StyledConv(
-            self.channels[4], self.channels[4], 3, style_dim, blur_kernel=blur_kernel
+            self.channels[4], self.channels[4], 3, z_space_dim, blur_kernel=blur_kernel
         )
-        self.to_rgb1 = ToRGB(self.channels[4], style_dim, upsample=False)
+        self.to_rgb1 = ToRGB(self.channels[4], z_space_dim, upsample=False)
 
         self.log_size = int(math.log(size, 2))
         self.num_layers = (self.log_size - 2) * 2 + 1
@@ -419,7 +425,7 @@ class Generator(nn.Module):
                     in_channel,
                     out_channel,
                     3,
-                    style_dim,
+                    z_space_dim,
                     upsample=True,
                     blur_kernel=blur_kernel,
                 )
@@ -427,11 +433,11 @@ class Generator(nn.Module):
 
             self.convs.append(
                 StyledConv(
-                    out_channel, out_channel, 3, style_dim, blur_kernel=blur_kernel
+                    out_channel, out_channel, 3, z_space_dim, blur_kernel=blur_kernel
                 )
             )
 
-            self.to_rgbs.append(ToRGB(out_channel, style_dim))
+            self.to_rgbs.append(ToRGB(out_channel, z_space_dim))
 
             in_channel = out_channel
 
@@ -453,7 +459,7 @@ class Generator(nn.Module):
 
     def mean_latent(self, n_latent):
         latent_in = torch.randn(
-            n_latent, self.style_dim, device=self.input.input.device
+            n_latent, self.z_space_dim, device=self.input.input.device
         )
         latent = self.style(latent_in).mean(0, keepdim=True)
 
@@ -524,6 +530,8 @@ class Generator(nn.Module):
         skip = self.to_rgb1(out, latent[:, 1])
 
         i = 1
+        # [::2] -- start 0, step 2, --> 0, 2, 4, 6, 8 ...
+        # [1::2] -- start 1, step 2, --> 1, 3, 5, 7, 9 ...
         for conv1, conv2, noise1, noise2, to_rgb in zip(
             self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
         ):
@@ -667,4 +675,288 @@ class Discriminator(nn.Module):
         out = self.final_linear(out)
 
         return out
+
+
+def model_device():
+    """Please call this function after model_setenv. """
+    return torch.device(os.environ["DEVICE"])
+
+def model_setenv():
+    """Setup environ  ..."""
+
+    # random init ...
+    # random.seed(42)
+    # torch.manual_seed(42)
+
+    # Set default device to avoid exceptions
+    if os.environ.get("DEVICE") != "YES" and os.environ.get("DEVICE") != "NO":
+        os.environ["DEVICE"] = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    if os.environ["DEVICE"] == 'cuda':
+        torch.backends.cudnn.enabled = True
+        torch.backends.cudnn.benchmark = True
+
+    print("Running Environment:")
+    print("----------------------------------------------")
+    print("  PWD: ", os.environ["PWD"])
+    print("  DEVICE: ", os.environ["DEVICE"])
+
+def grid_image(tensor, nrow=2):
+    '''Convert tensor to PIL Image.'''
+    grid = utils.make_grid(tensor, nrow=nrow)
+    ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(
+        1, 2, 0).to('cpu', torch.uint8).numpy()
+    image = Image.fromarray(ndarr)
+    return image
+
+
+def noise_regularize(noises):
+    loss = 0
+
+    for noise in noises:
+        size = noise.shape[2]
+
+        while True:
+            loss = (
+                loss
+                + (noise * torch.roll(noise, shifts=1, dims=3)).mean().pow(2)
+                + (noise * torch.roll(noise, shifts=1, dims=2)).mean().pow(2)
+            )
+
+            if size <= 8:
+                break
+
+            noise = noise.reshape([-1, 1, size // 2, 2, size // 2, 2])
+            noise = noise.mean([3, 5])
+            size //= 2
+
+    return loss
+
+def noise_normalize_(noises):
+    for noise in noises:
+        mean = noise.mean()
+        std = noise.std()
+
+        noise.data.add_(-mean).div_(std)
+
+
+def get_lr(t, initial_lr, rampdown=0.25, rampup=0.05):
+    lr_ramp = min(1, (1 - t) / rampdown)
+    lr_ramp = 0.5 - 0.5 * math.cos(lr_ramp * math.pi)
+    lr_ramp = lr_ramp * min(1, t / rampup)
+
+    return initial_lr * lr_ramp
+
+
+class StyleVAEModel:
+    """Style VAE."""
+
+    def __init__(self, project="stylegan2-ffhq-config-f.pth"):
+        """Init."""
+        self.project = project
+
+        print("Start creating StyleVAEModel for {} ...".format(project))
+        model_setenv()
+        self.device = model_device()
+
+        # Following meet project config ...
+        self.resolution = 1024
+        self.z_space_dim = 512
+        self.generator = Generator(self.resolution, self.z_space_dim, 8)
+
+        # Load checkpoint, do factorizing ...
+        self.load()
+        self.mean_wcode = self.generator.mean_latent(4096)
+
+    def zcode(self, n):
+        '''Generate zcode.'''
+        return torch.randn(n, self.z_space_dim, device=self.device)
+
+    def to_wcode(self, zcode):
+        """zcode format: Bxz_space_dim [-1.0, 1.0] normal tensor."""
+        with torch.no_grad():
+            wcode = self.generator.style(zcode)
+        return wcode
+
+    def to_image(self, image):
+        '''Post image, from [-1.0, 1.0] to [0.0, 1.0].'''
+        image.add_(1.0).div_(2.0).clamp_(0.0, 1.0)
+
+    def decode(self, wcode, noises=None):
+        """wcode format: Bxz_space_dim [-1.0, 1.0]  tensor."""
+        assert wcode.dim() == 2, "wcode must be BxS tensor."
+        with torch.no_grad():
+            if noises is None:
+                img, _ = self.generator([wcode],
+                    truncation=0.70,
+                    truncation_latent=self.mean_wcode,
+                    input_is_latent=True,
+                    noise=noises
+                )
+            else:
+                img, _ = self.generator([wcode],
+                    input_is_latent=True,
+                    noise=noises
+                )
+        return img
+
+    def encode(self, image):
+        '''image format: BxCxHxW [-1.0, 1.0] tensor.'''
+        assert image.dim() == 4, "imgae must be BxCxHxW tensor."
+        assert image.size(1) == 3 or image.size(
+            1) == 4, "image channel must be RGB or RGBA tensor"
+        assert image.size(2) == image.size(3), "image must be: image.height == image.width"
+        return self.train(image)
+
+    # def semantic_decode(self, zcode, k, d):
+    #     '''Semantic decode.
+    #         k -- semantic number
+    #         d -- semantic offset
+    #     '''
+    #     wcode = self.decoder.to_wcode(zcode)
+    #     if self.is_stylegan2:
+    #         e, v = self.eigen(k)
+    #         wcode[:, self.layers, :] += d * self.eigen_scale * v
+    #     with torch.no_grad():
+    #         img = self.decoder.synthesis(wcode)['image']
+    #     self.to_image(img)
+
+    #     return img
+
+    def sample(self, number, seed=-1):
+        '''Sample.'''
+        if seed < 0:
+            random.seed()
+            random_seed = random.randint(0, 1000000)
+        else:
+            random_seed = seed
+        torch.manual_seed(random_seed)
+        image = self.decode(self.zcode(number)) 
+        image = grid_image(image, nrow=nrow)
+        return image, random_seed
+
+    def eigen(self, index):
+        # eigen vectors ...
+        assert index < self.z_space_dim
+        return self.eigvec[:, index]
+
+    def load(self):
+        '''Load ...'''
+        print("Loading project {} ...".format(self.project))
+        # workspace = os.path.dirname(inspect.getfile(self.__init__))
+        # checkpoint = Path(workspace + "/models/" + self.project)
+        checkpoint = Path("models/" + self.project)
+
+        model_weights = torch.load(checkpoint)['g_ema']
+        self.generator.load_state_dict(model_weights, strict=False)
+        self.generator.eval()
+        self.generator = self.generator.to(self.device)
+
+        # Start weight factorizing
+        modulate = {
+            k: v
+            for k, v in model_weights.items()
+            if "modulation" in k and "to_rgbs" not in k and "weight" in k
+        }
+        # (Pdb) modulate.keys()
+        # dict_keys(['conv1.conv.modulation.weight', 
+        #     'to_rgb1.conv.modulation.weight', 
+        #     'convs.0.conv.modulation.weight', 
+        #     ......
+        #     'convs.15.conv.modulation.weight'])
+        weight_mat = []
+        for k, v in modulate.items():
+            weight_mat.append(v)
+
+        W = torch.cat(weight_mat, 0)
+        self.eigvec = torch.svd(W).V.to(self.device)
+
+    def __repr__(self):
+        """
+        Return printable string of the model.
+        """
+        fmt_str = '----------------------------------------------\n'
+        fmt_str += 'Project: '.format(self.project) + '\n'
+        fmt_str += '    Image resolution: {}\n'.format(self.resolution)
+        fmt_str += '    Z space dimension: {}\n'.format(self.z_space_dim)
+        fmt_str += '----------------------------------------------\n'
+
+        return fmt_str
+
+
+    def train(self, ref_images, epochs=100, start_lr = 0.1):
+        '''Train ...'''
+
+        ref_batch, channel, ref_height, ref_width = ref_images.shape
+        assert ref_height == ref_width
+
+        noises = []
+        for noise in self.generator.make_noise():
+            normal_noise = noise.repeat(ref_batch, 1, 1, 1).normal_()
+            normal_noise.requires_grad = True
+            noises.append(normal_noise)
+
+        n_mean_latent = 10000
+        with torch.no_grad():
+            noise_sample = torch.randn(n_mean_latent, 512, device=self.device)
+            latent_out = self.to_wcode(noise_sample)
+            latent_mean = latent_out.mean(0)
+            latent_std = ((latent_out - latent_mean).pow(2).sum() / n_mean_latent) ** 0.5
+        latent_in = latent_mean.detach().clone().unsqueeze(0).repeat(ref_batch, 1)
+        latent_in.requires_grad = True
+
+        optimizer = optim.Adam([latent_in] + noises, lr=start_lr)
+
+        percept = lpips.PerceptualLoss(
+            model="net-lin", net="vgg", use_gpu=os.environ["DEVICE"].startswith("cuda")
+        )
+
+        progress_bar = tqdm(range(epochs))
+        noise_level = 0.05
+        noise_ramp = 0.07
+        self.generator.train()
+
+        for i in progress_bar:
+            t = i / epochs
+
+            lr = get_lr(t, start_lr)
+            optimizer.param_groups[0]["lr"] = lr
+
+            # Inject Noise to latent_n
+            noise_strength = latent_std * noise_level * max(0, 1 - t / noise_ramp) ** 2
+            latent_n = latent_in + torch.randn_like(latent_in) * noise_strength.item()
+            gen_images, _ = self.generator([latent_n], input_is_latent=True, noise=noises)
+
+            batch, channel, height, width = gen_images.shape
+            if height > ref_height:
+                factor = height // ref_height
+                gen_images = gen_images.reshape(
+                    batch, channel, height // factor, factor, width // factor, factor
+                )
+                gen_images = gen_images.mean([3, 5])
+
+            p_loss = percept(gen_images, ref_images).sum()
+            n_loss = noise_regularize(noises)
+            mse_loss = F.mse_loss(gen_images, ref_images)
+
+            loss = p_loss + 1e5 * n_loss + 0.2 * mse_loss
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            noise_normalize_(noises)
+
+            last_latent = latent_in.detach().clone()
+            last_noises = noises
+
+            progress_bar.set_description(
+                (
+                    f"perceptual: {p_loss.item():.4f}; noise regularize: {n_loss.item():.4f};"
+                    f" mse: {mse_loss.item():.4f}; lr: {lr:.4f}"
+                )
+            )
+        self.generator.eval()
+
+        return last_latent, last_noises
 
