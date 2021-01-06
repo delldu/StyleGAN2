@@ -12,6 +12,7 @@ from tqdm import tqdm
 import lpips
 from model import Generator, StyleVAEModel
 
+import pdb
 
 def noise_regularize(noises):
     loss = 0
@@ -163,7 +164,7 @@ if __name__ == "__main__":
 
     model = StyleVAEModel()
     best_latent, best_noises = model.encode(imgs)
-    img_gen = model.decode(best_latent, noises=None)
+    img_gen = model.decode(best_latent)
     filename = os.path.splitext("sample/" + os.path.basename(args.files[0]))[0] + ".pt"
     img_ar = make_image(img_gen)
     # result_file = {}

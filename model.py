@@ -471,7 +471,6 @@ class Generator(nn.Module):
     def forward(
         self,
         styles,
-        return_latents=False,
         inject_index=None,
         truncation=1,
         truncation_latent=None,
@@ -543,11 +542,7 @@ class Generator(nn.Module):
 
         image = skip
 
-        if return_latents:
-            return image, latent
-
-        else:
-            return image, None
+        return image, latent
 
 
 class ConvLayer(nn.Sequential):
@@ -791,7 +786,6 @@ class StyleVAEModel:
                     truncation=0.70,
                     truncation_latent=self.mean_wcode,
                     input_is_latent=True,
-                    noise=noises
                 )
             else:
                 img, _ = self.generator([wcode],
@@ -948,7 +942,6 @@ class StyleVAEModel:
             noise_normalize_(noises)
 
             last_latent = latent_in.detach().clone()
-            last_noises = noises
 
             progress_bar.set_description(
                 (
@@ -956,7 +949,8 @@ class StyleVAEModel:
                     f" mse: {mse_loss.item():.4f}; lr: {lr:.4f}"
                 )
             )
+
         self.generator.eval()
 
-        return last_latent, last_noises
+        return last_latent, noises
 
