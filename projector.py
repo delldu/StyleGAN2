@@ -82,6 +82,10 @@ if __name__ == "__main__":
         "--ckpt", type=str, default="checkpoints/stylegan2-ffhq-config-f.pth", help="path to the model checkpoint"
     )
     parser.add_argument(
+        "--image-size", type=int, default=32, help="input image sizes of the generator"
+    )
+
+    parser.add_argument(
         "--size", type=int, default=1024, help="output image sizes of the generator"
     )
     parser.add_argument(
@@ -127,8 +131,15 @@ if __name__ == "__main__":
 
     n_mean_latent = 10000
 
-    resize = min(args.size, 256)
+    resize = min(args.size, args.image_size)
 
+    # Low resolution transformer
+    lrtransform = transforms.Compose(
+        [
+            transforms.Resize(resize),
+            transforms.CenterCrop(resize),
+        ]
+    )
     transform = transforms.Compose(
         [
             transforms.Resize(resize),
@@ -141,7 +152,11 @@ if __name__ == "__main__":
     imgs = []
 
     for imgfile in args.files:
-        img = transform(Image.open(imgfile).convert("RGB"))
+        img = Image.open(imgfile).convert("RGB")
+        lrimg = lrtransform(img)
+        lrimg.save("sample/lr-{}".format(os.path.basename(imgfile)))
+        
+        img = transform(img)
         imgs.append(img)
 
     imgs = torch.stack(imgs, 0).to(device)
@@ -193,8 +208,8 @@ if __name__ == "__main__":
 
         batch, channel, height, width = img_gen.shape
 
-        if height > 256:
-            factor = height // 256
+        if height > resize:
+            factor = height // resize
 
             img_gen = img_gen.reshape(
                 batch, channel, height // factor, factor, width // factor, factor
@@ -213,7 +228,7 @@ if __name__ == "__main__":
 
         noise_normalize_(noises)
 
-        if (i + 1) % 100 == 0:
+        if (i + 1) % 100 == 0 or (i + 1) == args.step:
             latent_path.append(latent_in.detach().clone())
 
         pbar.set_description(
@@ -229,20 +244,9 @@ if __name__ == "__main__":
 
     img_ar = make_image(img_gen)
 
-    result_file = {}
+    # result_file = {}
     for i, input_name in enumerate(args.files):
-        noise_single = []
-        for noise in noises:
-            noise_single.append(noise[i : i + 1])
-
-        result_file[input_name] = {
-            "img": img_gen[i],
-            "latent": latent_in[i],
-            "noise": noise_single,
-        }
-
         img_name = os.path.splitext("sample/" + os.path.basename(input_name))[0] + "-project.png"
         pil_img = Image.fromarray(img_ar[i])
         pil_img.save(img_name)
 
-    torch.save(result_file, filename)
