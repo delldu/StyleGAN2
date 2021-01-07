@@ -109,8 +109,15 @@ if __name__ == "__main__":
 
     model = StyleCodec()
 
+    # Test samples ...
+    images, seed = model.sample(9)
+    images.save("sample/sample-9.png")
+
+    # Test projector and edit
+
+
     for imgfile in args.files:
-        print("Projecting {} ...".format(imgfile))
+        print("Projecting and edit {} ...".format(imgfile))
 
         img = Image.open(imgfile).convert("RGB")
         lrimg = normal_size_transform(img)
@@ -118,24 +125,28 @@ if __name__ == "__main__":
 
         img = normal_tensor_transform(lrimg).unsqueeze(0)
         wcode = model.encode(img)
-        img_gen = model.decode(wcode)
+
+        imgs = []
+        for j in range(-1, 2):
+            ncode = model.edit(wcode, args.index, -5.0*j)
+            img_gen = model.decode(ncode)
+            imgs.append(img_gen)
+
+        imgs = torch.cat(imgs, dim=0)
+        image = model.grid_image(imgs, nrow = 3)
         filename = "sample/" + os.path.basename(imgfile) + "-projector.png"
-        image = T.ToPILImage()(img_gen[0])
         image.save(filename)
 
-    # Test samples ...
-    images, seed = model.sample(9)
-    images.save("sample/sample-9.png")
 
-    zcode = model.zcode(3)
-    wcode = model.to_wcode(zcode)
-    wcode1 = model.edit(wcode, args.index, -5.0)
-    wcode2 = model.edit(wcode, args.index, +5.0)
+    # zcode = model.zcode(3)
+    # wcode = model.to_wcode(zcode)
+    # wcode1 = model.edit(wcode, args.index, -5.0)
+    # wcode2 = model.edit(wcode, args.index, +5.0)
 
-    img1 = model.decode(wcode1, truncation=0.7)
-    img = model.decode(wcode, truncation=0.7)
-    img2 = model.decode(wcode2, truncation=0.7)
-    imgs = torch.cat([img1, img, img2], dim=0)
-    image = model.grid_image(imgs, nrow = 3)
-    image.save("sample/edit.png")
+    # img1 = model.decode(wcode1, truncation=0.7)
+    # img = model.decode(wcode, truncation=0.7)
+    # img2 = model.decode(wcode2, truncation=0.7)
+    # imgs = torch.cat([img1, img, img2], dim=0)
+    # image = model.grid_image(imgs, nrow = 3)
+    # image.save("sample/edit.png")
 
