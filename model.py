@@ -13,10 +13,11 @@ import torchvision.utils as utils
 from PIL import Image
 
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
-import pdb
 from torch import optim
-
+from torchvision import transforms as T
 from tqdm import tqdm
+
+import pdb
 
 
 class PixelNorm(nn.Module):
@@ -445,53 +446,38 @@ class Generator(nn.Module):
 
     def make_noise(self):
         device = self.input.input.device
-
-        # dims = [2 ** 2]
         noises = [torch.randn(1, 1, 2 ** 2, 2 ** 2, device=device)]
-
         for i in range(3, self.log_size + 1):
             for _ in range(2):
                 noises.append(torch.randn(1, 1, 2 ** i, 2 ** i, device=device))
-                # dims.append(2 ** i)
         # pdb.set_trace() -- len(noises) == 17
         # [4, 8, 8, 16, 16, 32, 32, 64, 64, 128, 128, 256, 256, 512, 512, 1024, 1024]
         return noises
 
     def mean_latent(self, n_latent):
-        latent_in = torch.randn(
+        zcode = torch.randn(
             n_latent, self.z_space_dim, device=self.input.input.device
         )
-        latent = self.style(latent_in).mean(0, keepdim=True)
+        latent = self.style(zcode).mean(0, keepdim=True)
 
         return latent
 
-    def get_latent(self, input):
-        return self.style(input)
+    def get_latent(self, zcode):
+        return self.style(zcode)
 
     def forward(
         self,
         styles,
-        inject_index=None,
         truncation=1,
         truncation_latent=None,
-        input_is_latent=False,
         noise=None,
-        randomize_noise=True,
     ):
-        if not input_is_latent:
-            styles = [self.style(s) for s in styles]
-
+        '''Too complex forward, it is stupid'''
         if noise is None:
-            if randomize_noise:
-                noise = [None] * self.num_layers
-            else:
-                noise = [
-                    getattr(self.noises, f"noise_{i}") for i in range(self.num_layers)
-                ]
+            noise = [None] * self.num_layers
 
         if truncation < 1:
             style_t = []
-
             for style in styles:
                 style_t.append(
                     truncation_latent + truncation * (style - truncation_latent)
@@ -499,26 +485,20 @@ class Generator(nn.Module):
 
             styles = style_t
 
-        # pdb.set_trace()
         # len(styles) -- 1
+        # self.n_latent -- 18
+        inject_index = self.n_latent
         if len(styles) < 2:
-            inject_index = self.n_latent
-
             # (Pdb) styles[0].size()
             # torch.Size([1, 512])
             if styles[0].ndim < 3:
                 latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
-
             else:
                 latent = styles[0]
-
         else:
-            if inject_index is None:
-                inject_index = random.randint(1, self.n_latent - 1)
-
+            inject_index = random.randint(1, self.n_latent - 1)
             latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
             latent2 = styles[1].unsqueeze(1).repeat(1, self.n_latent - inject_index, 1)
-
             latent = torch.cat([latent, latent2], 1)
 
         # (Pdb) latent.size()
@@ -682,7 +662,6 @@ def model_setenv():
     # random init ...
     # random.seed(42)
     # torch.manual_seed(42)
-
     # Set default device to avoid exceptions
     if os.environ.get("DEVICE") != "YES" and os.environ.get("DEVICE") != "NO":
         os.environ["DEVICE"] = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -695,15 +674,6 @@ def model_setenv():
     print("----------------------------------------------")
     print("  PWD: ", os.environ["PWD"])
     print("  DEVICE: ", os.environ["DEVICE"])
-
-def grid_image(tensor, nrow=2):
-    '''Convert tensor to PIL Image.'''
-    grid = utils.make_grid(tensor, nrow=nrow)
-    ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(
-        1, 2, 0).to('cpu', torch.uint8).numpy()
-    image = Image.fromarray(ndarr)
-    return image
-
 
 def noise_regularize(noises):
     loss = 0
@@ -743,14 +713,14 @@ def get_lr(t, initial_lr, rampdown=0.25, rampup=0.05):
     return initial_lr * lr_ramp
 
 
-class StyleVAEModel:
+class StyleCodec:
     """Style VAE."""
 
     def __init__(self, project="stylegan2-ffhq-config-f.pth"):
         """Init."""
         self.project = project
 
-        print("Start creating StyleVAEModel for {} ...".format(project))
+        print("Start creating StyleCodec for {} ...".format(project))
         model_setenv()
         self.device = model_device()
 
@@ -775,47 +745,38 @@ class StyleVAEModel:
 
     def to_image(self, image):
         '''Post image, from [-1.0, 1.0] to [0.0, 1.0].'''
-        image.add_(1.0).div_(2.0).clamp_(0.0, 1.0)
+        return ((image + 1.0)/2.0).clamp(0.0, 1.0)
 
-    def decode(self, wcode, noises=None):
-        """wcode format: Bxz_space_dim [-1.0, 1.0]  tensor."""
+    def grid_image(self, tensor, nrow=2):
+        '''Convert tensor to PIL Image.'''
+        grid = utils.make_grid(tensor, nrow=nrow)
+        ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(
+            1, 2, 0).to('cpu', torch.uint8).numpy()
+        image = Image.fromarray(ndarr)
+        return image        
+
+    def decode(self, wcode, truncation=1.0, noises=None):
+        """input: wcode format: Bxz_space_dim [-1.0, 1.0]  tensor.
+           output: BxCxHxW [0, 1.0] tensor on CPU.
+        """
         assert wcode.dim() == 2, "wcode must be BxS tensor."
         with torch.no_grad():
-            if noises is None:
-                img, _ = self.generator([wcode],
-                    truncation=0.70,
-                    truncation_latent=self.mean_wcode,
-                    input_is_latent=True,
-                )
-            else:
-                img, _ = self.generator([wcode],
-                    input_is_latent=True,
-                    noise=noises
-                )
-        return img
+            img, _ = self.generator([wcode], truncation=truncation,
+                truncation_latent=self.mean_wcode)
+        return self.to_image(img).cpu()
 
     def encode(self, image):
-        '''image format: BxCxHxW [-1.0, 1.0] tensor.'''
-        assert image.dim() == 4, "imgae must be BxCxHxW tensor."
-        assert image.size(1) == 3 or image.size(
-            1) == 4, "image channel must be RGB or RGBA tensor"
-        assert image.size(2) == image.size(3), "image must be: image.height == image.width"
+        '''input:  image with BxCxHxW [0, 1,0] Tensor
+           output: Bxz_space wcode.
+        '''
         return self.train(image)
 
-    # def semantic_decode(self, zcode, k, d):
-    #     '''Semantic decode.
-    #         k -- semantic number
-    #         d -- semantic offset
-    #     '''
-    #     wcode = self.decoder.to_wcode(zcode)
-    #     if self.is_stylegan2:
-    #         e, v = self.eigen(k)
-    #         wcode[:, self.layers, :] += d * self.eigen_scale * v
-    #     with torch.no_grad():
-    #         img = self.decoder.synthesis(wcode)['image']
-    #     self.to_image(img)
-
-    #     return img
+    def edit(self, wcode, k, d = 5.0):
+        '''Semantic edit.
+            k -- semantic number
+            d -- semantic offset
+        '''
+        return wcode + d * self.eigen(k).unsqueeze(0)
 
     def sample(self, number, seed=-1):
         '''Sample.'''
@@ -825,8 +786,10 @@ class StyleVAEModel:
         else:
             random_seed = seed
         torch.manual_seed(random_seed)
-        image = self.decode(self.zcode(number)) 
-        image = grid_image(image, nrow=nrow)
+        wcode = self.to_wcode(self.zcode(number))
+        image = self.decode(wcode)
+        nrow = int(math.sqrt(number) + 0.5) 
+        image = self.grid_image(image, nrow=nrow)
         return image, random_seed
 
     def eigen(self, index):
@@ -861,8 +824,8 @@ class StyleVAEModel:
         weight_mat = []
         for k, v in modulate.items():
             weight_mat.append(v)
-
         W = torch.cat(weight_mat, 0)
+        # torch.svd(W).S, torch.svd(W).V ...
         self.eigvec = torch.svd(W).V.to(self.device)
 
     def __repr__(self):
@@ -881,25 +844,30 @@ class StyleVAEModel:
     def train(self, ref_images, epochs=100, start_lr = 0.1):
         '''Train ...'''
 
+        if ref_images.dim() < 4:
+            ref_images = ref_images.unsqueeze(0)
+        ref_images = ref_images.to(os.environ["DEVICE"])
+
         ref_batch, channel, ref_height, ref_width = ref_images.shape
         assert ref_height == ref_width
 
-        noises = []
+        noise_var_list = []
         for noise in self.generator.make_noise():
             normal_noise = noise.repeat(ref_batch, 1, 1, 1).normal_()
             normal_noise.requires_grad = True
-            noises.append(normal_noise)
+            noise_var_list.append(normal_noise)
 
         n_mean_latent = 10000
-        with torch.no_grad():
-            noise_sample = torch.randn(n_mean_latent, 512, device=self.device)
-            latent_out = self.to_wcode(noise_sample)
-            latent_mean = latent_out.mean(0)
-            latent_std = ((latent_out - latent_mean).pow(2).sum() / n_mean_latent) ** 0.5
-        latent_in = latent_mean.detach().clone().unsqueeze(0).repeat(ref_batch, 1)
-        latent_in.requires_grad = True
+        noise_sample = torch.randn(n_mean_latent, 512, device=self.device)
+        latent_out = self.to_wcode(noise_sample)
+        latent_mean = latent_out.mean(0)
+        latent_std = ((latent_out - latent_mean).pow(2).sum() / n_mean_latent) ** 0.5
+        del noise_sample, latent_out
 
-        optimizer = optim.Adam([latent_in] + noises, lr=start_lr)
+        latent_var = latent_mean.detach().clone().unsqueeze(0).repeat(ref_batch, 1)
+        latent_var.requires_grad = True
+
+        optimizer = optim.Adam([latent_var] + noise_var_list, lr=start_lr)
 
         percept = lpips.PerceptualLoss(
             model="net-lin", net="vgg", use_gpu=os.environ["DEVICE"].startswith("cuda")
@@ -918,8 +886,8 @@ class StyleVAEModel:
 
             # Inject Noise to latent_n
             noise_strength = latent_std * noise_level * max(0, 1 - t / noise_ramp) ** 2
-            latent_n = latent_in + torch.randn_like(latent_in) * noise_strength.item()
-            gen_images, _ = self.generator([latent_n], input_is_latent=True, noise=noises)
+            latent_n = latent_var + torch.randn_like(latent_var) * noise_strength.item()
+            gen_images, _ = self.generator([latent_n], noise=noise_var_list)
 
             batch, channel, height, width = gen_images.shape
             if height > ref_height:
@@ -930,7 +898,7 @@ class StyleVAEModel:
                 gen_images = gen_images.mean([3, 5])
 
             p_loss = percept(gen_images, ref_images).sum()
-            n_loss = noise_regularize(noises)
+            n_loss = noise_regularize(noise_var_list)
             mse_loss = F.mse_loss(gen_images, ref_images)
 
             loss = p_loss + 1e5 * n_loss + 0.2 * mse_loss
@@ -939,18 +907,21 @@ class StyleVAEModel:
             loss.backward()
             optimizer.step()
 
-            noise_normalize_(noises)
-
-            last_latent = latent_in.detach().clone()
+            noise_normalize_(noise_var_list)
 
             progress_bar.set_description(
                 (
-                    f"perceptual: {p_loss.item():.4f}; noise regularize: {n_loss.item():.4f};"
+                    f"Loss = perceptual: {p_loss.item():.4f}; noise: {n_loss.item():.4f};"
                     f" mse: {mse_loss.item():.4f}; lr: {lr:.4f}"
                 )
             )
+        last_latent = latent_n.detach().clone()
 
         self.generator.eval()
 
-        return last_latent, noises
+        del noise_var_list
+        torch.cuda.empty_cache()
+
+        # maybe the best latent ?
+        return last_latent
 

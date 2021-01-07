@@ -101,7 +101,7 @@ if __name__ == "__main__":
                 latent_e1 = lerp(latent_t0, latent_t1, lerp_t[:, None] + args.eps)
                 latent_e = torch.stack([latent_e0, latent_e1], 1).view(*latent.shape)
 
-            image, _ = g([latent_e], input_is_latent=True, noise=noise)
+            image, _ = g([latent_e], noise=noise)
 
             if args.crop:
                 c = image.shape[2] // 8

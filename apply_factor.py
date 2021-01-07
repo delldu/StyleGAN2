@@ -80,8 +80,8 @@ if __name__ == "__main__":
     # (Pdb) trunc.size()
     # torch.Size([1, 512])
 
-    latent = torch.randn(args.n_sample, 512, device=args.device)
-    latent = g.get_latent(latent)
+    zcode = torch.randn(args.n_sample, 512, device=args.device)
+    latent = g.get_latent(zcode)
     # (Pdb) latent.size()
     # torch.Size([3, 512])
 
@@ -93,20 +93,17 @@ if __name__ == "__main__":
             [latent],
             truncation=args.truncation,
             truncation_latent=trunc,
-            input_is_latent=True,
         )
 
         img1, _ = g(
             [latent + direction],
             truncation=args.truncation,
             truncation_latent=trunc,
-            input_is_latent=True,
         )
         img2, _ = g(
             [latent - direction],
             truncation=args.truncation,
             truncation_latent=trunc,
-            input_is_latent=True,
         )
 
         grid = utils.save_image(
