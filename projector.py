@@ -190,9 +190,6 @@ if __name__ == "__main__":
     if args.w_plus:
         latent_in = latent_in.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
 
-
-
-
     optimizer = optim.Adam([latent_in] + noises, lr=args.lr)
 
     pbar = tqdm(range(args.step))
@@ -239,9 +236,14 @@ if __name__ == "__main__":
             )
         )
 
-    img_gen, _ = g_ema([latent_path[-1]], noise=noises)
+    # pdb.set_trace()
+    # (Pdb) latent_path[-1].size()
+    # torch.Size([1, 512])
+    # (Pdb) len(noises) -- 17
+    # (Pdb) noises[0].size(), noises[1].size(), noises[16].size()
+    # (torch.Size([1, 1, 4, 4]), torch.Size([1, 1, 8, 8]), torch.Size([1, 1, 1024, 1024]))
 
-    filename = os.path.splitext("sample/" + os.path.basename(args.files[0]))[0] + ".pt"
+    img_gen, _ = g_ema([latent_path[-1]], noise=noises)
 
     img_ar = make_image(img_gen)
 

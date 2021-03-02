@@ -4,7 +4,16 @@ import torch
 from torchvision import utils
 from model import Generator
 from tqdm import tqdm
+from PIL import Image
+import pdb
 
+def grid_image(tensor, nrow=2):
+    '''Convert tensor to PIL Image.'''
+    grid = utils.make_grid(tensor, nrow=nrow)
+    ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(
+        1, 2, 0).to('cpu', torch.uint8).numpy()
+    image = Image.fromarray(ndarr)
+    return image
 
 def generate(args, g_ema, device, mean_latent):
 
@@ -12,18 +21,20 @@ def generate(args, g_ema, device, mean_latent):
         g_ema.eval()
         for i in tqdm(range(args.pics)):
             sample_z = torch.randn(args.sample, args.latent, device=device)
-
+            wcode = g_ema.style(sample_z)
             sample, _ = g_ema(
-                [sample_z], truncation=args.truncation, truncation_latent=mean_latent
+                [wcode], truncation=args.truncation, truncation_latent=mean_latent
             )
-
-            utils.save_image(
-                sample,
-                f"sample/{str(i).zfill(6)}.png",
-                nrow=1,
-                normalize=True,
-                range=(-1, 1),
-            )
+            sample = ((sample + 1.0)/2.0).clamp(0.0, 1.0)
+            sample = grid_image(sample, nrow = 1)
+            sample.save("sample/{:06d}.png".format(i))
+            # utils.save_image(
+            #     sample,
+            #     f"sample/{str(i).zfill(6)}.png",
+            #     nrow=1,
+            #     normalize=True,
+            #     range=(-1, 1),
+            # )
 
 
 if __name__ == "__main__":
@@ -41,7 +52,7 @@ if __name__ == "__main__":
         help="number of samples to be generated for each image",
     )
     parser.add_argument(
-        "--pics", type=int, default=20, help="number of images to be generated"
+        "--pics", type=int, default=10, help="number of images to be generated"
     )
     parser.add_argument("--truncation", type=float, default=1, help="truncation ratio")
     parser.add_argument(
@@ -53,7 +64,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="stylegan2-ffhq-config-f.pt",
+        default="models/stylegan2-ffhq-config-f.pth",
         help="path to the model checkpoint",
     )
     parser.add_argument(
@@ -68,12 +79,11 @@ if __name__ == "__main__":
     args.latent = 512
     args.n_mlp = 8
 
-    g_ema = Generator(
-        args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier
-    ).to(device)
+    g_ema = Generator(args.size, args.latent, args.n_mlp, channel_multiplier=args.channel_multiplier).to(device)
     checkpoint = torch.load(args.ckpt)
 
     g_ema.load_state_dict(checkpoint["g_ema"])
+    g_ema.eval()
 
     if args.truncation < 1:
         with torch.no_grad():

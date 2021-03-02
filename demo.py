@@ -116,26 +116,26 @@ if __name__ == "__main__":
     # Test projector and edit
 
 
-    for imgfile in args.files:
-        print("Projecting and edit {} ...".format(imgfile))
+    # for imgfile in args.files:
+    #     print("Projecting and edit {} ...".format(imgfile))
 
-        img = Image.open(imgfile).convert("RGB")
-        lrimg = normal_size_transform(img)
-        lrimg.save("sample/lr-{}".format(os.path.basename(imgfile)))
+    #     img = Image.open(imgfile).convert("RGB")
+    #     lrimg = normal_size_transform(img)
+    #     lrimg.save("sample/lr-{}".format(os.path.basename(imgfile)))
 
-        img = normal_tensor_transform(lrimg).unsqueeze(0)
-        wcode = model.encode(img)
+    #     img = normal_tensor_transform(lrimg).unsqueeze(0)
+    #     wcode = model.encode(img)
 
-        imgs = []
-        for j in range(-1, 2):
-            ncode = model.edit(wcode, args.index, -5.0*j)
-            img_gen = model.decode(ncode)
-            imgs.append(img_gen)
+    #     imgs = []
+    #     for j in range(-1, 2):
+    #         ncode = model.edit(wcode, args.index, -5.0*j)
+    #         img_gen = model.decode(ncode)
+    #         imgs.append(img_gen)
 
-        imgs = torch.cat(imgs, dim=0)
-        image = model.grid_image(imgs, nrow = 3)
-        filename = "sample/" + os.path.basename(imgfile) + "-projector.png"
-        image.save(filename)
+    #     imgs = torch.cat(imgs, dim=0)
+    #     image = model.grid_image(imgs, nrow = 3)
+    #     filename = "sample/" + os.path.basename(imgfile) + "-projector.png"
+    #     image.save(filename)
 
 
     # zcode = model.zcode(3)
