@@ -161,7 +161,7 @@ def export_torch():
 
 
 def get_model(checkpoint):
-    """Create model."""
+    """Create encoder model."""
 
     model_setenv()
     model = GanEncoderModel()
@@ -170,6 +170,17 @@ def get_model(checkpoint):
     model.to(device)
 
     return model
+
+def get_decoder_model(checkpoint):
+    """Create decode model."""
+
+    model_setenv()
+    model = GanEncoderModel()
+    model_load(model, checkpoint)
+    device = model_device()
+    model.to(device)
+
+    return model    
 
 
 class Counter(object):

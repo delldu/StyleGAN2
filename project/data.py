@@ -15,10 +15,8 @@ from PIL import Image
 import torch.utils.data as data
 import torchvision.transforms as T
 import torchvision.utils as utils
+from tqdm import tqdm
 
-# xxxx--modify here
-train_dataset_rootdir = "dataset/train/"
-test_dataset_rootdir = "dataset/test/"
 
 def grid_image(tensor_list, nrow=3):
     grid = utils.make_grid(
@@ -51,32 +49,43 @@ def get_transform(train=True):
     ts.append(T.ToTensor())
     return T.Compose(ts)
 
+
 class GanEncoderDataset(data.Dataset):
     """Define dataset."""
 
-    def __init__(self, root, transforms=get_transform()):
+    def __init__(self, n, transforms=get_transform()):
         """Init dataset."""
         super(GanEncoderDataset, self).__init__()
 
-        self.root = root
+        self.images = []
+        self.labels = []
+        self.total_numbers = n
+
+        print("Create encoder dataset ...")
+        progress_bar = tqdm(total = n)
+        for i in range(n):
+            progress_bar.update(1)
+
+            label = torch.randn(512)
+            # self.images.append(image)
+            self.images.append(label)
+            self.labels.append(label)
+
         self.transforms = transforms
 
-        # load all images, sorting for alignment
-        self.images = list(sorted(os.listdir(root)))
 
     def __getitem__(self, idx):
         """Load images."""
 
-        img_path = os.path.join(self.root, self.images[idx])
-        img = Image.open(img_path).convert("RGB")
-        img = self.transforms(img)
+        img = self.images[idx]
+        image = self.transforms(img)
+        label = self.labels[idx]
 
-        return img
+        return image, label
 
     def __len__(self):
         """Return total numbers."""
-
-        return len(self.images)
+        return self.total_numbers
 
     def __repr__(self):
         """
@@ -85,7 +94,7 @@ class GanEncoderDataset(data.Dataset):
 
         fmt_str = 'Dataset ' + self.__class__.__name__ + '\n'
         fmt_str += '    Number of samples: {}\n'.format(self.__len__())
-        fmt_str += '    Root Location: {}\n'.format(self.root)
+        # fmt_str += '    Root Location: {}\n'.format(self.root)
         tmp = '    Transforms: '
         fmt_str += '{0}{1}\n'.format(tmp, self.transforms.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
         return fmt_str
@@ -93,7 +102,7 @@ class GanEncoderDataset(data.Dataset):
 def train_data(bs):
     """Get data loader for trainning & validating, bs means batch_size."""
 
-    train_ds = GanEncoderDataset(train_dataset_rootdir, get_transform(train=True))
+    train_ds = GanEncoderDataset(4096, get_transform(train=True))
     print(train_ds)
 
     # Split train_ds in train and valid set
@@ -114,7 +123,7 @@ def train_data(bs):
 def test_data(bs):
     """Get data loader for test, bs means batch_size."""
 
-    test_ds = GanEncoderDataset(test_dataset_rootdir, get_transform(train=False))
+    test_ds = GanEncoderDataset(512, get_transform(train=False))
     test_dl = data.DataLoader(test_ds, batch_size=bs, shuffle=False, num_workers=4)
 
     return test_dl
@@ -128,7 +137,7 @@ def get_data(trainning=True, bs=4):
 def GanEncoderDatasetTest():
     """Test dataset ..."""
 
-    ds = GanEncoderDataset(train_dataset_rootdir)
+    ds = GanEncoderDataset(512)
     print(ds)
     # src, tgt = ds[0]
     # grid = utils.make_grid(torch.cat([src.unsqueeze(0), tgt.unsqueeze(0)], dim=0), nrow=2)
