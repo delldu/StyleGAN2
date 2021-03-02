@@ -202,7 +202,7 @@ if __name__ == "__main__":
         noise_strength = latent_std * args.noise * max(0, 1 - t / args.noise_ramp) ** 2
         latent_n = latent_noise(latent_in, noise_strength.item())
 
-        img_gen = g_ema([latent_n], noise=noises) # xxxx8888
+        img_gen = g_ema(latent_n, noise=noises) # xxxx8888
 
         batch, channel, height, width = img_gen.shape
 
@@ -243,7 +243,7 @@ if __name__ == "__main__":
     # (Pdb) noises[0].size(), noises[1].size(), noises[16].size()
     # (torch.Size([1, 1, 4, 4]), torch.Size([1, 1, 8, 8]), torch.Size([1, 1, 1024, 1024]))
 
-    img_gen = g_ema([latent_path[-1]], noise=noises)  # xxxx8888
+    img_gen = g_ema(latent_path[-1], noise=noises)  # xxxx8888
 
     img_ar = make_image(img_gen)
 

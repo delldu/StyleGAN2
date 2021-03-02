@@ -143,6 +143,24 @@ def model_setenv():
     print("  PWD: ", os.environ["PWD"])
     print("  DEVICE: ", os.environ["DEVICE"])
 
+def export_torch():
+    """Export torch model."""
+
+    script_file = "output/image_gandecoder.pt"
+    weight_file = "models/ImageGanDecoder.pth"
+
+    # 1. Load model
+    print("Loading model ...")
+    model = get_model(weight_file)
+    model.eval()
+
+    # 2. Model export
+    print("Export model ...")
+    dummy_input = torch.randn(1, 512)
+    traced_script_module = torch.jit.trace(model, dummy_input, _force_outplace=True)
+    traced_script_module.save(script_file)
+
+
 if __name__ == '__main__':
     """Test model ..."""
     import argparse
@@ -152,6 +170,8 @@ if __name__ == '__main__':
     parser.add_argument('--verify', help="Verify onnx model", action='store_true')
 
     args = parser.parse_args()
+
+    # export_torch()
 
     if args.export:
         export_onnx()

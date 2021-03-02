@@ -179,7 +179,6 @@ class ModulatedConv2d(nn.Module):
         out_channel,
         kernel_size,
         z_space_dim,
-        demodulate=True,
         upsample=False,
         downsample=False,
         blur_kernel=[1, 3, 3, 1],
@@ -219,8 +218,6 @@ class ModulatedConv2d(nn.Module):
 
         self.modulation = EqualLinear(z_space_dim, in_channel, bias_init=1)
 
-        self.demodulate = demodulate
-
     def __repr__(self):
         return (
             f"{self.__class__.__name__}({self.in_channel}, {self.out_channel}, {self.kernel_size}, "
@@ -228,19 +225,19 @@ class ModulatedConv2d(nn.Module):
         )
 
     def forward(self, input, style):
-        batch, in_channel, height, width = input.shape
+        batch, in_channel, height, width = input.shape[0], input.shape[1], input.shape[2], input.shape[3]
 
         style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
         weight = self.scale * self.weight * style
 
-        if self.demodulate:
-            demod = torch.rsqrt(weight.pow(2).sum([2, 3, 4]) + 1e-8)
-            weight = weight * demod.view(batch, self.out_channel, 1, 1, 1)
+        demod = torch.rsqrt(weight.pow(2).sum([2, 3, 4]) + 1e-8)
+        weight = weight * demod.view(batch, self.out_channel, 1, 1, 1)
 
         weight = weight.view(
             batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size
         )
 
+        # xxxx8888
         if self.upsample:
             input = input.view(1, batch * in_channel, height, width)
             weight = weight.view(
@@ -249,24 +246,141 @@ class ModulatedConv2d(nn.Module):
             weight = weight.transpose(1, 2).reshape(
                 batch * in_channel, self.out_channel, self.kernel_size, self.kernel_size
             )
-            out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
-            _, _, height, width = out.shape
+            # xxxx8888
+            # out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
+            out = F.conv_transpose2d(input, weight, padding=0, stride=2)
+            height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
             out = self.blur(out)
 
         elif self.downsample:
             input = self.blur(input)
-            _, _, height, width = input.shape
+            height, width = input.shape[2], input.shape[3]
             input = input.view(1, batch * in_channel, height, width)
             out = F.conv2d(input, weight, padding=0, stride=2, groups=batch)
-            _, _, height, width = out.shape
+            height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
 
         else:
             input = input.view(1, batch * in_channel, height, width)
-            out = F.conv2d(input, weight, padding=self.padding, groups=batch)
-            _, _, height, width = out.shape
+            # input.size() -- torch.Size([1, 512, 4, 4])
+            # weight.size() -- torch.Size([512, 512, 3, 3])
+            # self.padding -- 1
+            # batch -- tensor(1)
+            # xxxx8888
+            # out = F.conv2d(input, weight, padding=self.padding, groups=batch)
+            out = F.conv2d(input, weight, padding=self.padding)
+            height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
+
+
+        return out
+
+class NoModulatedConv2d(nn.Module):
+    def __init__(
+        self,
+        in_channel,
+        out_channel,
+        kernel_size,
+        z_space_dim,
+        upsample=False,
+        downsample=False,
+        blur_kernel=[1, 3, 3, 1],
+    ):
+        super().__init__()
+
+        self.eps = 1e-8
+        self.kernel_size = kernel_size
+        self.in_channel = in_channel
+        self.out_channel = out_channel
+        self.upsample = upsample
+        self.downsample = downsample
+
+        # if upsample:
+        #     factor = 2
+        #     p = (len(blur_kernel) - factor) - (kernel_size - 1)
+        #     pad0 = (p + 1) // 2 + factor - 1
+        #     pad1 = p // 2 + 1
+
+        #     self.blur = Blur(blur_kernel, pad=(pad0, pad1), upsample_factor=factor)
+
+        # if downsample:
+        #     factor = 2
+        #     p = (len(blur_kernel) - factor) + (kernel_size - 1)
+        #     pad0 = (p + 1) // 2
+        #     pad1 = p // 2
+
+        #     self.blur = Blur(blur_kernel, pad=(pad0, pad1))
+
+        fan_in = in_channel * kernel_size ** 2
+        self.scale = 1 / math.sqrt(fan_in)
+        self.padding = kernel_size // 2
+
+        self.weight = nn.Parameter(
+            torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
+        )
+
+        self.modulation = EqualLinear(z_space_dim, in_channel, bias_init=1)
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}({self.in_channel}, {self.out_channel}, {self.kernel_size}, "
+            f"upsample={self.upsample}, downsample={self.downsample})"
+        )
+
+    def forward(self, input, style):
+        batch, in_channel, height, width = input.shape[0], input.shape[1], input.shape[2], input.shape[3]
+
+        style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
+        weight = self.scale * self.weight * style
+
+        weight = weight.view(
+            batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size
+        )
+
+        # xxxx8888
+        # if self.upsample:
+        #     input = input.view(1, batch * in_channel, height, width)
+        #     weight = weight.view(
+        #         batch, self.out_channel, in_channel, self.kernel_size, self.kernel_size
+        #     )
+        #     weight = weight.transpose(1, 2).reshape(
+        #         batch * in_channel, self.out_channel, self.kernel_size, self.kernel_size
+        #     )
+        #     out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
+        #     height, width = out.shape[2], out.shape[3]
+        #     out = out.view(batch, self.out_channel, height, width)
+        #     out = self.blur(out)
+
+        # elif self.downsample:
+        #     input = self.blur(input)
+        #     height, width = input.shape[2], input.shape[3]
+        #     input = input.view(1, batch * in_channel, height, width)
+        #     out = F.conv2d(input, weight, padding=0, stride=2, groups=batch)
+        #     height, width = out.shape[2], out.shape[3]
+        #     out = out.view(batch, self.out_channel, height, width)
+
+        # else:
+        #     input = input.view(1, batch * in_channel, height, width)
+        #     # input.size() -- torch.Size([1, 512, 4, 4])
+        #     # weight.size() -- torch.Size([512, 512, 3, 3])
+        #     # self.padding -- 1
+        #     # batch -- tensor(1)
+        #     out = F.conv2d(input, weight, padding=self.padding, groups=batch)
+        #     height, width = out.shape[2], out.shape[3]
+        #     out = out.view(batch, self.out_channel, height, width)
+
+        input = input.view(1, batch * in_channel, height, width)
+        # input.size() -- torch.Size([1, 512, 4, 4])
+        # weight.size() -- torch.Size([512, 512, 3, 3])
+        # self.padding -- 1
+        # batch -- tensor(1)
+        # xxxx8888
+        # out = F.conv2d(input, weight, padding=self.padding, groups=batch)
+        out = F.conv2d(input, weight, padding=self.padding)
+
+        height, width = out.shape[2], out.shape[3]
+        out = out.view(batch, self.out_channel, height, width)
 
         return out
 
@@ -280,8 +394,9 @@ class NoiseInjection(nn.Module):
     def forward(self, image, noise=None):
         if noise is None:
             batch, _, height, width = image.shape
-            noise = image.new_empty(batch, 1, height, width).normal_()
-
+            # xxxx8888
+            # noise = image.new_empty(batch, 1, height, width).normal_()
+            noise = torch.zeros_like(image)
         return image + self.weight * noise
 
 
@@ -307,14 +422,12 @@ class StyledConv(nn.Module):
         z_space_dim,
         upsample=False,
         blur_kernel=[1, 3, 3, 1],
-        demodulate=True,
     ):
         super().__init__()
 
         self.conv = ModulatedConv2d(in_channel, out_channel, kernel_size, z_space_dim, 
             upsample=upsample,
-            blur_kernel=blur_kernel,
-            demodulate=demodulate,
+            blur_kernel=blur_kernel
         )
 
         self.noise = NoiseInjection()
@@ -335,7 +448,7 @@ class ToRGB(nn.Module):
         if upsample:
             self.upsample = Upsample(blur_kernel)
 
-        self.conv = ModulatedConv2d(in_channel, 3, 1, z_space_dim, demodulate=False)
+        self.conv = NoModulatedConv2d(in_channel, 3, 1, z_space_dim)
         self.bias = nn.Parameter(torch.zeros(1, 3, 1, 1))
 
     def forward(self, input, style, skip=None):
@@ -449,28 +562,19 @@ class Generator(nn.Module):
 
     def forward(
         self,
-        styles,
+        zcode,
         noise=None,
     ):
         '''Too complex forward, it is stupid'''
         if noise is None:
             noise = [None] * self.num_layers
 
-        # len(styles) -- 1
+        wcode = self.style(zcode)
         # self.n_latent -- 18
-        inject_index = self.n_latent
-        if len(styles) < 2:
-            # (Pdb) styles[0].size()
-            # torch.Size([1, 512])
-            if styles[0].ndim < 3:
-                latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
-            else:
-                latent = styles[0]
+        if wcode.ndim < 3:
+            latent = wcode.unsqueeze(1).repeat(1, self.n_latent, 1)
         else:
-            inject_index = random.randint(1, self.n_latent - 1)
-            latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
-            latent2 = styles[1].unsqueeze(1).repeat(1, self.n_latent - inject_index, 1)
-            latent = torch.cat([latent, latent2], 1)
+            latent = wcode
 
         # (Pdb) latent.size()
         # torch.Size([1, 18, 512])
@@ -651,12 +755,6 @@ class StyleCodec:
         '''Generate zcode.'''
         return torch.randn(n, self.z_space_dim, device=self.device)
 
-    def to_wcode(self, zcode):
-        """zcode format: Bxz_space_dim [-1.0, 1.0] normal tensor."""
-        with torch.no_grad():
-            wcode = self.generator.style(zcode)
-        return wcode
-
     def grid_image(self, tensor, nrow=2):
         '''Convert tensor to PIL Image.'''
         grid = utils.make_grid(tensor, nrow=nrow)
@@ -671,7 +769,7 @@ class StyleCodec:
         """
         assert wcode.dim() == 2, "wcode must be BxS tensor."
         with torch.no_grad():
-            img = self.generator([wcode])   # xxxx8888
+            img = self.generator(wcode)
         return img.cpu()
 
     def encode(self, image):
@@ -695,8 +793,7 @@ class StyleCodec:
         else:
             random_seed = seed
         torch.manual_seed(random_seed)
-        wcode = self.to_wcode(self.zcode(number))
-        image = self.decode(wcode)
+        image = self.decode(self.zcode(number))
         nrow = int(math.sqrt(number) + 0.5) 
         image = self.grid_image(image, nrow=nrow)
         return image, random_seed
@@ -767,8 +864,7 @@ class StyleCodec:
             noise_var_list.append(normal_noise)
 
         n_mean_latent = 10000
-        noise_sample = torch.randn(n_mean_latent, 512, device=self.device)
-        latent_out = self.to_wcode(noise_sample)
+        latent_out = torch.randn(n_mean_latent, 512, device=self.device)
         latent_mean = latent_out.mean(0)
         latent_std = ((latent_out - latent_mean).pow(2).sum() / n_mean_latent) ** 0.5
         del noise_sample, latent_out

@@ -21,8 +21,7 @@ def generate(args, g_ema, device):
         g_ema.eval()
         for i in tqdm(range(args.pics)):
             sample_z = torch.randn(args.sample, args.latent, device=device)
-            wcode = g_ema.style(sample_z)
-            sample = g_ema([wcode])     # xxxx8888
+            sample = g_ema(sample_z)
             sample = grid_image(sample, nrow = 1)
             sample.save("sample/{:06d}.png".format(i + 1))
 
