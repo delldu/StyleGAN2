@@ -48,7 +48,7 @@ def export_onnx():
 
     onnx_file_name = "output/image_gandecoder.onnx"
     model_weight_file = 'models/ImageGanDecoder.pth'
-    dummy_input = torch.randn(1, 3, 512, 512)
+    dummy_input = torch.randn(1, 512)
 
     # 1. Create and load model.
     model_setenv()
@@ -60,9 +60,6 @@ def export_onnx():
 
     input_names = ["input"]
     output_names = ["output"]
-    dynamic_axes = {'input': {2: "height", 3: 'width'},
-                    'output': {2: "height", 3: 'width'}
-                    }
 
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                   input_names=input_names,
@@ -70,8 +67,7 @@ def export_onnx():
                   verbose=True,
                   opset_version=11,
                   keep_initializers_as_inputs=False,
-                  export_params=True,
-                  dynamic_axes=dynamic_axes)
+                  export_params=True)
 
     # 3. Optimize model
     print('Checking model ...')
@@ -100,30 +96,13 @@ def verify_onnx():
     def to_numpy(tensor):
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
-    dummy_input = torch.randn(1, 3, 512, 512)
+    dummy_input = torch.randn(1, 512)
     with torch.no_grad():
         torch_output = torch_model(dummy_input)
     onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
     onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
     np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
-    print("Example1: Onnx model has been tested with ONNXRuntime, the result looks good !")
-
-    # Test dynamic axes
-    dummy_input = torch.randn(1, 3, 512, 511)
-    with torch.no_grad():
-        torch_output = torch_model(dummy_input)
-    onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
-    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
-    np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
-    print("Example2: Onnx model has been tested with ONNXRuntime, the result looks good!")
-
-    dummy_input = torch.randn(1, 3, 1024, 1024)
-    with torch.no_grad():
-        torch_output = torch_model(dummy_input)
-    onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
-    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
-    np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
-    print("Example3: Onnx model has been tested with ONNXRuntime, the result looks good!")
+    print("Example: Onnx model has been tested with ONNXRuntime, the result looks good !")
 
 
 def get_model(checkpoint):
