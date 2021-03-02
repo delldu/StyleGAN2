@@ -51,9 +51,6 @@ if __name__ == "__main__":
         "-n", "--n_sample", type=int, default=3, help="number of samples created"
     )
     parser.add_argument(
-        "--truncation", type=float, default=0.7, help="truncation factor"
-    )
-    parser.add_argument(
         "--device", type=str, default="cuda", help="device to run the model"
     )
     parser.add_argument(
@@ -89,21 +86,15 @@ if __name__ == "__main__":
         direction = args.degree * eigvec[:, args.index].unsqueeze(0)
         # (Pdb) direction.size()
         # torch.Size([1, 512])
-        img, _ = g(
-            [latent],
-            truncation=args.truncation,
-            truncation_latent=trunc,
+        img = g(
+            [latent]
         )
 
-        img1, _ = g(
-            [latent + direction],
-            truncation=args.truncation,
-            truncation_latent=trunc,
+        img1 = g(
+            [latent + direction]
         )
-        img2, _ = g(
-            [latent - direction],
-            truncation=args.truncation,
-            truncation_latent=trunc,
+        img2 = g(
+            [latent - direction]
         )
 
         grid = utils.save_image(

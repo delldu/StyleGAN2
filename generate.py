@@ -15,26 +15,16 @@ def grid_image(tensor, nrow=2):
     image = Image.fromarray(ndarr)
     return image
 
-def generate(args, g_ema, device, mean_latent):
+def generate(args, g_ema, device):
 
     with torch.no_grad():
         g_ema.eval()
         for i in tqdm(range(args.pics)):
             sample_z = torch.randn(args.sample, args.latent, device=device)
             wcode = g_ema.style(sample_z)
-            sample, _ = g_ema(
-                [wcode], truncation=args.truncation, truncation_latent=mean_latent
-            )
-            sample = ((sample + 1.0)/2.0).clamp(0.0, 1.0)
+            sample = g_ema([wcode])     # xxxx8888
             sample = grid_image(sample, nrow = 1)
-            sample.save("sample/{:06d}.png".format(i))
-            # utils.save_image(
-            #     sample,
-            #     f"sample/{str(i).zfill(6)}.png",
-            #     nrow=1,
-            #     normalize=True,
-            #     range=(-1, 1),
-            # )
+            sample.save("sample/{:06d}.png".format(i + 1))
 
 
 if __name__ == "__main__":
@@ -54,13 +44,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--pics", type=int, default=10, help="number of images to be generated"
     )
-    parser.add_argument("--truncation", type=float, default=1, help="truncation ratio")
-    parser.add_argument(
-        "--truncation_mean",
-        type=int,
-        default=4096,
-        help="number of vectors to calculate mean for the truncation",
-    )
+
     parser.add_argument(
         "--ckpt",
         type=str,
@@ -85,10 +69,4 @@ if __name__ == "__main__":
     g_ema.load_state_dict(checkpoint["g_ema"])
     g_ema.eval()
 
-    if args.truncation < 1:
-        with torch.no_grad():
-            mean_latent = g_ema.mean_latent(args.truncation_mean)
-    else:
-        mean_latent = None
-
-    generate(args, g_ema, device, mean_latent)
+    generate(args, g_ema, device)

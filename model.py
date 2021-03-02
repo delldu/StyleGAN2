@@ -116,7 +116,6 @@ class EqualConv2d(nn.Module):
 
         if bias:
             self.bias = nn.Parameter(torch.zeros(out_channel))
-
         else:
             self.bias = None
 
@@ -312,25 +311,18 @@ class StyledConv(nn.Module):
     ):
         super().__init__()
 
-        self.conv = ModulatedConv2d(
-            in_channel,
-            out_channel,
-            kernel_size,
-            z_space_dim,
+        self.conv = ModulatedConv2d(in_channel, out_channel, kernel_size, z_space_dim, 
             upsample=upsample,
             blur_kernel=blur_kernel,
             demodulate=demodulate,
         )
 
         self.noise = NoiseInjection()
-        # self.bias = nn.Parameter(torch.zeros(1, out_channel, 1, 1))
-        # self.activate = ScaledLeakyReLU(0.2)
         self.activate = FusedLeakyReLU(out_channel)
 
     def forward(self, input, style, noise=None):
         out = self.conv(input, style)
         out = self.noise(out, noise=noise)
-        # out = out + self.bias
         out = self.activate(out)
 
         return out
@@ -361,9 +353,9 @@ class ToRGB(nn.Module):
 class Generator(nn.Module):
     def __init__(
         self,
-        size,
-        z_space_dim,
-        n_mlp,
+        size = 1024,
+        z_space_dim = 512,
+        n_mlp = 8,
         channel_multiplier=2,
         blur_kernel=[1, 3, 3, 1],
         lr_mlp=0.01,
@@ -377,10 +369,9 @@ class Generator(nn.Module):
         layers = [PixelNorm()]
 
         for i in range(n_mlp):
+            # bias=True, bias_init=0, lr_mul=1, activation=None
             layers.append(
-                EqualLinear(
-                    z_space_dim, z_space_dim, lr_mul=lr_mlp, activation="fused_lrelu"
-                )
+                EqualLinear(z_space_dim, z_space_dim, lr_mul=lr_mlp, activation="fused_lrelu")
             )
 
         self.style = nn.Sequential(*layers)
@@ -398,9 +389,7 @@ class Generator(nn.Module):
         }
 
         self.input = ConstantInput(self.channels[4])
-        self.conv1 = StyledConv(
-            self.channels[4], self.channels[4], 3, z_space_dim, blur_kernel=blur_kernel
-        )
+        self.conv1 = StyledConv(self.channels[4], self.channels[4], 3, z_space_dim, blur_kernel=blur_kernel)
         self.to_rgb1 = ToRGB(self.channels[4], z_space_dim, upsample=False)
 
         self.log_size = int(math.log(size, 2))
@@ -422,20 +411,11 @@ class Generator(nn.Module):
             out_channel = self.channels[2 ** i]
 
             self.convs.append(
-                StyledConv(
-                    in_channel,
-                    out_channel,
-                    3,
-                    z_space_dim,
-                    upsample=True,
-                    blur_kernel=blur_kernel,
-                )
+                StyledConv(in_channel, out_channel, 3, z_space_dim, upsample=True, blur_kernel=blur_kernel)
             )
 
             self.convs.append(
-                StyledConv(
-                    out_channel, out_channel, 3, z_space_dim, blur_kernel=blur_kernel
-                )
+                StyledConv(out_channel, out_channel, 3, z_space_dim, blur_kernel=blur_kernel)
             )
 
             self.to_rgbs.append(ToRGB(out_channel, z_space_dim))
@@ -443,6 +423,8 @@ class Generator(nn.Module):
             in_channel = out_channel
 
         self.n_latent = self.log_size * 2 - 2
+
+        self.last_latent = None
 
     def make_noise(self):
         device = self.input.input.device
@@ -468,22 +450,11 @@ class Generator(nn.Module):
     def forward(
         self,
         styles,
-        truncation=1,
-        truncation_latent=None,
         noise=None,
     ):
         '''Too complex forward, it is stupid'''
         if noise is None:
             noise = [None] * self.num_layers
-
-        if truncation < 1:
-            style_t = []
-            for style in styles:
-                style_t.append(
-                    truncation_latent + truncation * (style - truncation_latent)
-                )
-
-            styles = style_t
 
         # len(styles) -- 1
         # self.n_latent -- 18
@@ -520,9 +491,13 @@ class Generator(nn.Module):
 
             i += 2
 
-        image = skip
+        self.last_latent = latent
 
-        return image, latent
+        # image = skip
+        '''Post image, from [-1.0, 1.0] to [0.0, 1.0].'''
+        image = ((skip + 1.0)/2.0).clamp(0.0, 1.0)
+
+        return image
 
 
 class ConvLayer(nn.Sequential):
@@ -587,67 +562,6 @@ class ResBlock(nn.Module):
 
         skip = self.skip(input)
         out = (out + skip) / math.sqrt(2)
-
-        return out
-
-
-class Discriminator(nn.Module):
-    def __init__(self, size, channel_multiplier=2, blur_kernel=[1, 3, 3, 1]):
-        super().__init__()
-
-        channels = {
-            4: 512,
-            8: 512,
-            16: 512,
-            32: 512,
-            64: 256 * channel_multiplier,
-            128: 128 * channel_multiplier,
-            256: 64 * channel_multiplier,
-            512: 32 * channel_multiplier,
-            1024: 16 * channel_multiplier,
-        }
-
-        convs = [ConvLayer(3, channels[size], 1)]
-
-        log_size = int(math.log(size, 2))
-
-        in_channel = channels[size]
-
-        for i in range(log_size, 2, -1):
-            out_channel = channels[2 ** (i - 1)]
-
-            convs.append(ResBlock(in_channel, out_channel, blur_kernel))
-
-            in_channel = out_channel
-
-        self.convs = nn.Sequential(*convs)
-
-        self.stddev_group = 4
-        self.stddev_feat = 1
-
-        self.final_conv = ConvLayer(in_channel + 1, channels[4], 3)
-        self.final_linear = nn.Sequential(
-            EqualLinear(channels[4] * 4 * 4, channels[4], activation="fused_lrelu"),
-            EqualLinear(channels[4], 1),
-        )
-
-    def forward(self, input):
-        out = self.convs(input)
-
-        batch, channel, height, width = out.shape
-        group = min(batch, self.stddev_group)
-        stddev = out.view(
-            group, -1, self.stddev_feat, channel // self.stddev_feat, height, width
-        )
-        stddev = torch.sqrt(stddev.var(0, unbiased=False) + 1e-8)
-        stddev = stddev.mean([2, 3, 4], keepdims=True).squeeze(2)
-        stddev = stddev.repeat(group, 1, height, width)
-        out = torch.cat([out, stddev], 1)
-
-        out = self.final_conv(out)
-
-        out = out.view(batch, -1)
-        out = self.final_linear(out)
 
         return out
 
@@ -743,10 +657,6 @@ class StyleCodec:
             wcode = self.generator.style(zcode)
         return wcode
 
-    def to_image(self, image):
-        '''Post image, from [-1.0, 1.0] to [0.0, 1.0].'''
-        return ((image + 1.0)/2.0).clamp(0.0, 1.0)
-
     def grid_image(self, tensor, nrow=2):
         '''Convert tensor to PIL Image.'''
         grid = utils.make_grid(tensor, nrow=nrow)
@@ -755,15 +665,14 @@ class StyleCodec:
         image = Image.fromarray(ndarr)
         return image        
 
-    def decode(self, wcode, truncation=1.0, noises=None):
+    def decode(self, wcode):
         """input: wcode format: Bxz_space_dim [-1.0, 1.0]  tensor.
            output: BxCxHxW [0, 1.0] tensor on CPU.
         """
         assert wcode.dim() == 2, "wcode must be BxS tensor."
         with torch.no_grad():
-            img, _ = self.generator([wcode], truncation=truncation,
-                truncation_latent=self.mean_wcode)
-        return self.to_image(img).cpu()
+            img = self.generator([wcode])   # xxxx8888
+        return img.cpu()
 
     def encode(self, image):
         '''input:  image with BxCxHxW [0, 1,0] Tensor
@@ -887,7 +796,7 @@ class StyleCodec:
             # Inject Noise to latent_n
             noise_strength = latent_std * noise_level * max(0, 1 - t / noise_ramp) ** 2
             latent_n = latent_var + torch.randn_like(latent_var) * noise_strength.item()
-            gen_images, _ = self.generator([latent_n], noise=noise_var_list)
+            gen_images = self.generator([latent_n], noise=noise_var_list)
 
             batch, channel, height, width = gen_images.shape
             if height > ref_height:

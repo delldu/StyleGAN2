@@ -143,9 +143,9 @@ if __name__ == "__main__":
     # wcode1 = model.edit(wcode, args.index, -5.0)
     # wcode2 = model.edit(wcode, args.index, +5.0)
 
-    # img1 = model.decode(wcode1, truncation=0.7)
-    # img = model.decode(wcode, truncation=0.7)
-    # img2 = model.decode(wcode2, truncation=0.7)
+    # img1 = model.decode(wcode1)
+    # img = model.decode(wcode)
+    # img2 = model.decode(wcode2)
     # imgs = torch.cat([img1, img, img2], dim=0)
     # image = model.grid_image(imgs, nrow = 3)
     # image.save("sample/edit.png")
