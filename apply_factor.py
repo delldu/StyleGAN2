@@ -6,19 +6,6 @@ from PIL import Image
 from model import Generator
 import pdb
 
-def make_image(tensor):
-    return (
-        tensor.detach()
-        .clamp_(min=-1, max=1)
-        .add(1)
-        .div_(2)
-        .mul(255)
-        .type(torch.uint8)
-        .permute(0, 2, 3, 1)
-        .to("cpu")
-        .numpy()
-    )
-
 if __name__ == "__main__":
     torch.set_grad_enabled(False)
 
