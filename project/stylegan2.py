@@ -1,22 +1,10 @@
 import math
-import random
-import os
-from pathlib import Path
-
-import lpips
+import pdb
 
 import torch
 from torch import nn
 from torch.nn import functional as F
 
-import torchvision.utils as utils
-from PIL import Image
-
-from torch import optim
-from torchvision import transforms as T
-from tqdm import tqdm
-
-import pdb
 
 def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
     out = upfirdn2d_native(
@@ -39,14 +27,15 @@ def upfirdn2d_native(
     out = out.view(-1, in_h * up_y, in_w * up_x, minor)
 
     out = F.pad(
-        out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)]
+        out, [0, 0, max(pad_x0, 0), max(pad_x1, 0),
+              max(pad_y0, 0), max(pad_y1, 0)]
     )
 
     # xxxx8888
     out = out[
         :,
-        max(-pad_y0, 0) : out.shape[1] - max(-pad_y1, 0),
-        max(-pad_x0, 0) : out.shape[2] - max(-pad_x1, 0),
+        max(-pad_y0, 0): out.shape[1] - max(-pad_y1, 0),
+        max(-pad_x0, 0): out.shape[2] - max(-pad_x1, 0),
         :,
     ]
 
@@ -81,6 +70,7 @@ class FusedLeakyReLU(nn.Module):
 
     def forward(self, input):
         return fused_leaky_relu(input, self.bias, self.negative_slope, self.scale)
+
 
 def fused_leaky_relu(input, bias, negative_slope=0.2, scale=2 ** 0.5):
     rest_dim = [1] * (input.ndim - bias.ndim - 1)
@@ -122,28 +112,8 @@ class Upsample(nn.Module):
         self.pad = (pad0, pad1)
 
     def forward(self, input):
-        out = upfirdn2d(input, self.kernel, up=self.factor, down=1, pad=self.pad)
-
-        return out
-
-
-class Downsample(nn.Module):
-    def __init__(self, kernel, factor=2):
-        super().__init__()
-
-        self.factor = factor
-        kernel = make_kernel(kernel)
-        self.register_buffer("kernel", kernel)
-
-        p = kernel.shape[0] - factor
-
-        pad0 = (p + 1) // 2
-        pad1 = p // 2
-
-        self.pad = (pad0, pad1)
-
-    def forward(self, input):
-        out = upfirdn2d(input, self.kernel, up=1, down=self.factor, pad=self.pad)
+        out = upfirdn2d(input, self.kernel, up=self.factor,
+                        down=1, pad=self.pad)
 
         return out
 
@@ -165,43 +135,6 @@ class Blur(nn.Module):
         out = upfirdn2d(input, self.kernel, pad=self.pad)
 
         return out
-
-
-class EqualConv2d(nn.Module):
-    def __init__(
-        self, in_channel, out_channel, kernel_size, stride=1, padding=0, bias=True
-    ):
-        super().__init__()
-
-        self.weight = nn.Parameter(
-            torch.randn(out_channel, in_channel, kernel_size, kernel_size)
-        )
-        self.scale = 1 / math.sqrt(in_channel * kernel_size ** 2)
-
-        self.stride = stride
-        self.padding = padding
-
-        if bias:
-            self.bias = nn.Parameter(torch.zeros(out_channel))
-        else:
-            self.bias = None
-
-    def forward(self, input):
-        out = F.conv2d(
-            input,
-            self.weight * self.scale,
-            bias=self.bias,
-            stride=self.stride,
-            padding=self.padding,
-        )
-
-        return out
-
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]},"
-            f" {self.weight.shape[2]}, stride={self.stride}, padding={self.padding})"
-        )
 
 
 class EqualLinear(nn.Module):
@@ -264,7 +197,8 @@ class ModulatedConv2d(nn.Module):
             pad0 = (p + 1) // 2 + factor - 1
             pad1 = p // 2 + 1
 
-            self.blur = Blur(blur_kernel, pad=(pad0, pad1), upsample_factor=factor)
+            self.blur = Blur(blur_kernel, pad=(
+                pad0, pad1), upsample_factor=factor)
 
         if downsample:
             factor = 2
@@ -311,7 +245,8 @@ class ModulatedConv2d(nn.Module):
             weight = weight.transpose(1, 2).reshape(
                 batch * in_channel, self.out_channel, self.kernel_size, self.kernel_size
             )
-            out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
+            out = F.conv_transpose2d(
+                input, weight, padding=0, stride=2, groups=batch)
             height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
             out = self.blur(out)
@@ -334,8 +269,8 @@ class ModulatedConv2d(nn.Module):
             height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
 
-
         return out
+
 
 class NoModulatedConv2d(nn.Module):
     def __init__(
@@ -427,10 +362,10 @@ class StyledConv(nn.Module):
     ):
         super().__init__()
 
-        self.conv = ModulatedConv2d(in_channel, out_channel, kernel_size, z_space_dim, 
-            upsample=upsample,
-            blur_kernel=blur_kernel
-        )
+        self.conv = ModulatedConv2d(in_channel, out_channel, kernel_size, z_space_dim,
+                                    upsample=upsample,
+                                    blur_kernel=blur_kernel
+                                    )
 
         self.noise = NoiseInjection()
         self.activate = FusedLeakyReLU(out_channel)
@@ -468,25 +403,27 @@ class ToRGB(nn.Module):
 class Generator(nn.Module):
     def __init__(
         self,
-        size = 1024,
-        z_space_dim = 512,
-        n_mlp = 8,
+        size=1024,
+        z_space_dim=512,
+        n_mlp=8,
         channel_multiplier=2,
         blur_kernel=[1, 3, 3, 1],
         lr_mlp=0.01,
     ):
         super().__init__()
 
-        self.size = size
-
+        self.Generator = size
         self.z_space_dim = z_space_dim
+        self.n_mlp = n_mlp
+        self.channel_multiplier = channel_multiplier
 
         layers = [PixelNorm()]
 
         for i in range(n_mlp):
             # bias=True, bias_init=0, lr_mul=1, activation=None
             layers.append(
-                EqualLinear(z_space_dim, z_space_dim, lr_mul=lr_mlp, activation="fused_lrelu")
+                EqualLinear(z_space_dim, z_space_dim,
+                            lr_mul=lr_mlp, activation="fused_lrelu")
             )
 
         self.style = nn.Sequential(*layers)
@@ -504,7 +441,8 @@ class Generator(nn.Module):
         }
 
         self.input = ConstantInput(self.channels[4])
-        self.conv1 = StyledConv(self.channels[4], self.channels[4], 3, z_space_dim, blur_kernel=blur_kernel)
+        self.conv1 = StyledConv(
+            self.channels[4], self.channels[4], 3, z_space_dim, blur_kernel=blur_kernel)
         self.to_rgb1 = ToRGB(self.channels[4], z_space_dim, upsample=False)
 
         self.log_size = int(math.log(size, 2))
@@ -520,17 +458,20 @@ class Generator(nn.Module):
         for layer_idx in range(self.num_layers):
             res = (layer_idx + 5) // 2
             shape = [1, 1, 2 ** res, 2 ** res]
-            self.noises.register_buffer(f"noise_{layer_idx}", torch.randn(*shape))
+            self.noises.register_buffer(
+                f"noise_{layer_idx}", torch.randn(*shape))
 
         for i in range(3, self.log_size + 1):
             out_channel = self.channels[2 ** i]
 
             self.convs.append(
-                StyledConv(in_channel, out_channel, 3, z_space_dim, upsample=True, blur_kernel=blur_kernel)
+                StyledConv(in_channel, out_channel, 3, z_space_dim,
+                           upsample=True, blur_kernel=blur_kernel)
             )
 
             self.convs.append(
-                StyledConv(out_channel, out_channel, 3, z_space_dim, blur_kernel=blur_kernel)
+                StyledConv(out_channel, out_channel, 3,
+                           z_space_dim, blur_kernel=blur_kernel)
             )
 
             self.to_rgbs.append(ToRGB(out_channel, z_space_dim))
@@ -540,34 +481,9 @@ class Generator(nn.Module):
         self.n_latent = self.log_size * 2 - 2
 
         self.last_latent = None
+        self.eigvectors = torch.zeros(z_space_dim, z_space_dim)
 
-    def make_noise(self):
-        device = self.input.input.device
-        noises = [torch.randn(1, 1, 2 ** 2, 2 ** 2, device=device)]
-        for i in range(3, self.log_size + 1):
-            for _ in range(2):
-                noises.append(torch.randn(1, 1, 2 ** i, 2 ** i, device=device))
-        # pdb.set_trace() -- len(noises) == 17
-        # [4, 8, 8, 16, 16, 32, 32, 64, 64, 128, 128, 256, 256, 512, 512, 1024, 1024]
-        return noises
-
-    def mean_latent(self, n_latent):
-        zcode = torch.randn(
-            n_latent, self.z_space_dim, device=self.input.input.device
-        )
-        latent = self.style(zcode).mean(0, keepdim=True)
-
-        return latent
-
-    def get_latent(self, zcode):
-        return self.style(zcode)
-
-    def forward(
-        self,
-        zcode,
-        noise=None,
-    ):
-        '''Too complex forward, it is stupid'''
+    def forward(self, zcode, noise=None):
         if noise is None:
             noise = [None] * self.num_layers
 
@@ -605,330 +521,146 @@ class Generator(nn.Module):
 
         return image
 
-
-class ConvLayer(nn.Sequential):
-    def __init__(
-        self,
-        in_channel,
-        out_channel,
-        kernel_size,
-        downsample=False,
-        blur_kernel=[1, 3, 3, 1],
-        bias=True,
-        activate=True,
-    ):
-        layers = []
-
-        if downsample:
-            factor = 2
-            p = (len(blur_kernel) - factor) + (kernel_size - 1)
-            pad0 = (p + 1) // 2
-            pad1 = p // 2
-
-            layers.append(Blur(blur_kernel, pad=(pad0, pad1)))
-
-            stride = 2
-            self.padding = 0
-
-        else:
-            stride = 1
-            self.padding = kernel_size // 2
-
-        layers.append(
-            EqualConv2d(
-                in_channel,
-                out_channel,
-                kernel_size,
-                padding=self.padding,
-                stride=stride,
-                bias=bias and not activate,
-            )
-        )
-
-        if activate:
-            layers.append(FusedLeakyReLU(out_channel, bias=bias))
-
-        super().__init__(*layers)
-
-
-class ResBlock(nn.Module):
-    def __init__(self, in_channel, out_channel, blur_kernel=[1, 3, 3, 1]):
-        super().__init__()
-
-        self.conv1 = ConvLayer(in_channel, in_channel, 3)
-        self.conv2 = ConvLayer(in_channel, out_channel, 3, downsample=True)
-
-        self.skip = ConvLayer(
-            in_channel, out_channel, 1, downsample=True, activate=False, bias=False
-        )
-
-    def forward(self, input):
-        out = self.conv1(input)
-        out = self.conv2(out)
-
-        skip = self.skip(input)
-        out = (out + skip) / math.sqrt(2)
-
-        return out
-
-
-def model_device():
-    """Please call this function after model_setenv. """
-    return torch.device(os.environ["DEVICE"])
-
-def model_setenv():
-    """Setup environ  ..."""
-
-    # random init ...
-    # random.seed(42)
-    # torch.manual_seed(42)
-    # Set default device to avoid exceptions
-    if os.environ.get("DEVICE") != "YES" and os.environ.get("DEVICE") != "NO":
-        os.environ["DEVICE"] = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-    if os.environ["DEVICE"] == 'cuda':
-        torch.backends.cudnn.enabled = True
-        torch.backends.cudnn.benchmark = True
-
-    print("Running Environment:")
-    print("----------------------------------------------")
-    print("  PWD: ", os.environ["PWD"])
-    print("  DEVICE: ", os.environ["DEVICE"])
-
-def noise_loss(noises):
-    loss = 0
-
-    for noise in noises:
-        size = noise.shape[2]
-
-        while True:
-            loss = (
-                loss
-                + (noise * torch.roll(noise, shifts=1, dims=3)).mean().pow(2)
-                + (noise * torch.roll(noise, shifts=1, dims=2)).mean().pow(2)
-            )
-
-            if size <= 8:
-                break
-
-            noise = noise.reshape([-1, 1, size // 2, 2, size // 2, 2])
-            noise = noise.mean([3, 5])
-            size //= 2
-
-    return loss
-
-def noise_normalize_(noises):
-    for noise in noises:
-        mean = noise.mean()
-        std = noise.std()
-
-        noise.data.add_(-mean).div_(std)
-
-
-def get_lr(t, initial_lr, rampdown=0.25, rampup=0.05):
-    lr_ramp = min(1, (1 - t) / rampdown)
-    lr_ramp = 0.5 - 0.5 * math.cos(lr_ramp * math.pi)
-    lr_ramp = lr_ramp * min(1, t / rampup)
-
-    return initial_lr * lr_ramp
-
-
-class StyleCodec:
-    """Style VAE."""
-
-    def __init__(self, project="stylegan2-ffhq-config-f.pth"):
-        """Init."""
-        self.project = project
-
-        print("Start creating StyleCodec for {} ...".format(project))
-        model_setenv()
-        self.device = model_device()
-
-        # Following meet project config ...
-        self.resolution = 1024
-        self.z_space_dim = 512
-        self.generator = Generator(self.resolution, self.z_space_dim, 8)
-
-        # Load checkpoint, do factorizing ...
-        self.load()
-        self.mean_wcode = self.generator.mean_latent(4096)
-
-    def zcode(self, n):
-        '''Generate zcode.'''
-        return torch.randn(n, self.z_space_dim, device=self.device)
-
-    def grid_image(self, tensor, nrow=2):
-        '''Convert tensor to PIL Image.'''
-        grid = utils.make_grid(tensor, nrow=nrow)
-        ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(
-            1, 2, 0).to('cpu', torch.uint8).numpy()
-        image = Image.fromarray(ndarr)
-        return image        
-
-    def decode(self, wcode):
-        """input: wcode format: Bxz_space_dim [-1.0, 1.0]  tensor.
-           output: BxCxHxW [0, 1.0] tensor on CPU.
-        """
-        assert wcode.dim() == 2, "wcode must be BxS tensor."
-        with torch.no_grad():
-            img = self.generator(wcode)
-        return img.cpu()
-
-    def encode(self, image):
-        '''input:  image with BxCxHxW [0, 1,0] Tensor
-           output: Bxz_space wcode.
-        '''
-        return self.train(image)
-
-    def edit(self, wcode, k, d = 5.0):
-        '''Semantic edit.
-            k -- semantic number
-            d -- semantic offset
-        '''
-        return wcode + d * self.eigen(k).unsqueeze(0)
-
-    def sample(self, number, seed=-1):
-        '''Sample.'''
-        if seed < 0:
-            random.seed()
-            random_seed = random.randint(0, 1000000)
-        else:
-            random_seed = seed
-        torch.manual_seed(random_seed)
-        image = self.decode(self.zcode(number))
-        nrow = int(math.sqrt(number) + 0.5) 
-        image = self.grid_image(image, nrow=nrow)
-        return image, random_seed
-
     def eigen(self, index):
-        # eigen vectors ...
+        # eigen vector for dim index ...
         assert index < self.z_space_dim
-        return self.eigvec[:, index]
+        return self.eigvectors[:, index]
 
-    def load(self):
-        '''Load ...'''
-        print("Loading project {} ...".format(self.project))
-        # workspace = os.path.dirname(inspect.getfile(self.__init__))
-        # checkpoint = Path(workspace + "/models/" + self.project)
-        checkpoint = Path("models/" + self.project)
+def get_decoder():
+    ''' Get generator'''
 
-        model_weights = torch.load(checkpoint)['g_ema']
-        self.generator.load_state_dict(model_weights, strict=False)
-        self.generator.eval()
-        self.generator = self.generator.to(self.device)
+    # resolution, z_space_dim, n_mlp
+    print("Creating decoder ...")
+    model = Generator(1024, 512, 8)
+    checkpoint = "models/ImageGanDecoder.pth"
+    model_weights = torch.load(checkpoint)["g_ema"]
+    model.load_state_dict(model_weights)
 
-        # Start weight factorizing
-        modulate = {
-            k: v
-            for k, v in model_weights.items()
-            if "modulation" in k and "to_rgbs" not in k and "weight" in k
-        }
-        # (Pdb) modulate.keys()
-        # dict_keys(['conv1.conv.modulation.weight', 
-        #     'to_rgb1.conv.modulation.weight', 
-        #     'convs.0.conv.modulation.weight', 
-        #     ......
-        #     'convs.15.conv.modulation.weight'])
-        weight_mat = []
-        for k, v in modulate.items():
-            weight_mat.append(v)
-        W = torch.cat(weight_mat, 0)
-        # torch.svd(W).S, torch.svd(W).V ...
-        self.eigvec = torch.svd(W).V.to(self.device)
+    # Start weight factorizing
+    print("Factorizing decoder weights ...")
+    modulate = {
+        k: v
+        for k, v in model_weights.items()
+        if "modulation" in k and "to_rgbs" not in k and "weight" in k
+    }
+    # (Pdb) modulate.keys()
+    # dict_keys(['conv1.conv.modulation.weight', 
+    #     'to_rgb1.conv.modulation.weight', 
+    #     'convs.0.conv.modulation.weight', 
+    #     ......
+    #     'convs.15.conv.modulation.weight'])
+    weight_mat = []
+    for k, v in modulate.items():
+        weight_mat.append(v)
+    W = torch.cat(weight_mat, 0)
+    # torch.svd(W).S, torch.svd(W).V ...
+    model.eigvectors = torch.svd(W).V
 
-    def __repr__(self):
-        """
-        Return printable string of the model.
-        """
-        fmt_str = '----------------------------------------------\n'
-        fmt_str += 'Project: '.format(self.project) + '\n'
-        fmt_str += '    Image resolution: {}\n'.format(self.resolution)
-        fmt_str += '    Z space dimension: {}\n'.format(self.z_space_dim)
-        fmt_str += '----------------------------------------------\n'
+    # (Pdb) eigvectors.size()
+    # torch.Size([512, 512])
 
-        return fmt_str
+    return model
 
 
-    def train(self, ref_images, epochs=100, start_lr = 0.1):
-        '''Train ...'''
+def export_onnx():
+    """Export onnx model."""
 
-        if ref_images.dim() < 4:
-            ref_images = ref_images.unsqueeze(0)
-        ref_images = ref_images.to(os.environ["DEVICE"])
+    import onnx
+    import onnxruntime
+    from onnx import optimizer
+    import numpy as np
 
-        ref_batch, channel, ref_height, ref_width = ref_images.shape
-        assert ref_height == ref_width
+    onnx_file_name = "output/image_gandecoder.onnx"
+    dummy_input = torch.randn(1, 512)
 
-        noise_var_list = []
-        for noise in self.generator.make_noise():
-            normal_noise = noise.repeat(ref_batch, 1, 1, 1).normal_()
-            normal_noise.requires_grad = True
-            noise_var_list.append(normal_noise)
+    # 1. Create and load model.
+    torch_model = get_decoder()
+    torch_model.eval()
 
-        n_mean_latent = 10000
-        latent_out = torch.randn(n_mean_latent, 512, device=self.device)
-        latent_mean = latent_out.mean(0)
-        latent_std = ((latent_out - latent_mean).pow(2).sum() / n_mean_latent) ** 0.5
-        del noise_sample, latent_out
+    # 2. Model export
+    print("Export model ...")
 
-        latent_var = latent_mean.detach().clone().unsqueeze(0).repeat(ref_batch, 1)
-        latent_var.requires_grad = True
+    input_names = ["input"]
+    output_names = ["output"]
 
-        optimizer = optim.Adam([latent_var] + noise_var_list, lr=start_lr)
+    torch.onnx.export(torch_model, dummy_input, onnx_file_name,
+                  input_names=input_names,
+                  output_names=output_names,
+                  verbose=True,
+                  opset_version=11,
+                  keep_initializers_as_inputs=False,
+                  export_params=True)
 
-        percept = lpips.PerceptualLoss(
-            model="net-lin", net="vgg", use_gpu=os.environ["DEVICE"].startswith("cuda")
-        )
+    # 3. Optimize model
+    print('Checking model ...')
+    onnx_model = onnx.load(onnx_file_name)
+    onnx.checker.check_model(onnx_model)
+    # https://github.com/onnx/optimizer
 
-        progress_bar = tqdm(range(epochs))
-        noise_level = 0.05
-        noise_ramp = 0.07
-        self.generator.train()
+    # 4. Visual model
+    # python -c "import netron; netron.start('output/image_zoom.onnx')"
 
-        for i in progress_bar:
-            t = i / epochs
 
-            lr = get_lr(t, start_lr)
-            optimizer.param_groups[0]["lr"] = lr
+def verify_onnx():
+    """Verify onnx model."""
 
-            # Inject Noise to latent_n
-            noise_strength = latent_std * noise_level * max(0, 1 - t / noise_ramp) ** 2
-            latent_n = latent_var + torch.randn_like(latent_var) * noise_strength.item()
-            gen_images = self.generator(latent_n, noise=noise_var_list)
+    import onnxruntime
+    import numpy as np
 
-            batch, channel, height, width = gen_images.shape
-            if height > ref_height:
-                factor = height // ref_height
-                gen_images = gen_images.reshape(
-                    batch, channel, height // factor, factor, width // factor, factor
-                )
-                gen_images = gen_images.mean([3, 5])
+    torch_model = get_decoder()
+    torch_model.eval()
 
-            p_loss = percept(gen_images, ref_images).sum()
-            n_loss = noise_loss(noise_var_list)
-            mse_loss = F.mse_loss(gen_images, ref_images)
+    onnx_file_name = "output/image_gandecoder.onnx"
+    onnxruntime_engine = onnxruntime.InferenceSession(onnx_file_name)
 
-            loss = p_loss + 1e5 * n_loss + 0.2 * mse_loss
+    def to_numpy(tensor):
+        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+    dummy_input = torch.randn(1, 512)
+    with torch.no_grad():
+        torch_output = torch_model(dummy_input)
+    onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
+    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
+    np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
+    print("Example: Onnx model has been tested with ONNXRuntime, the result looks good !")
 
-            noise_normalize_(noise_var_list)
 
-            progress_bar.set_description(
-                (
-                    f"Loss = perceptual: {p_loss.item():.4f}; noise: {n_loss.item():.4f};"
-                    f" mse: {mse_loss.item():.4f}; lr: {lr:.4f}"
-                )
-            )
-        last_latent = latent_n.detach().clone()
+def export_torch():
+    """Export torch model."""
 
-        self.generator.eval()
+    script_file = "output/image_gandecoder.pt"
 
-        del noise_var_list
-        torch.cuda.empty_cache()
+    # 1. Load model
+    print("Loading model ...")
+    model = get_decoder()
+    model.eval()
 
-        # maybe the best latent ?
-        return last_latent
+    # 2. Model export
+    print("Export model ...")
+    dummy_input = torch.randn(1, 512)
+    traced_script_module = torch.jit.trace(model, dummy_input, _force_outplace=True)
+    traced_script_module.save(script_file)
 
+
+if __name__ == '__main__':
+    """Onnx Tools ..."""
+    import os
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--export', help="Export onnx model", action='store_true')
+    parser.add_argument('--verify', help="Verify onnx model", action='store_true')
+    parser.add_argument('--output', type=str, default="output", help="output folder")
+
+    args = parser.parse_args()
+
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
+
+    export_torch()
+
+    if args.export:
+        export_onnx()
+
+    if args.verify:
+        verify_onnx()

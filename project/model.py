@@ -18,20 +18,6 @@ import torch.nn as nn
 from tqdm import tqdm
 
 
-class GanEncoderModel(nn.Module):
-    """GanEncoder Model."""
-
-    def __init__(self):
-        """Init model."""
-
-        super(GanEncoderModel, self).__init__()
-
-    def forward(self, x):
-        """Forward."""
-
-        return x
-
-
 def model_load(model, path):
     """Load model."""
 
