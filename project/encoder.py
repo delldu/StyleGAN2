@@ -45,7 +45,7 @@ class GanEncoderModel(nn.Module):
 
     def forward(self, x):
         """Forward."""
-        return self.resnet50(x)
+        return self.resnet50(x).unsqueeze(1)
 
 def get_encoder():
     '''Get encoder'''

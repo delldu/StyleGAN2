@@ -16,227 +16,12 @@ import sys
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-
-class StyleCodec:
-    """Style VAE."""
-
-    def __init__(self, project="stylegan2-ffhq-config-f.pth"):
-        """Init."""
-        self.project = project
-
-        print("Start creating StyleCodec for {} ...".format(project))
-        model_setenv()
-        self.device = model_device()
-
-        # Following meet project config ...
-        self.resolution = 1024
-        self.z_space_dim = 512
-        self.generator = Generator(self.resolution, self.z_space_dim, 8)
-
-    def zcode(self, n):
-        '''Generate zcode.'''
-        return torch.randn(n, self.z_space_dim, device=self.device)
-
-
-    def decode(self, wcode):
-        """input: wcode format: Bxz_space_dim [-1.0, 1.0]  tensor.
-           output: BxCxHxW [0, 1.0] tensor on CPU.
-        """
-        assert wcode.dim() == 2, "wcode must be BxS tensor."
-        with torch.no_grad():
-            img = self.generator(wcode)
-        return img.cpu()
-
-    def encode(self, image):
-        '''input:  image with BxCxHxW [0, 1,0] Tensor
-           output: Bxz_space wcode.
-        '''
-        return self.train(image)
-
-    def edit(self, wcode, k, d = 5.0):
-        '''Semantic edit.
-            k -- semantic number
-            d -- semantic offset
-        '''
-        return wcode + d * self.eigen(k).unsqueeze(0)
-
-    def sample(self, number, seed=-1):
-        '''Sample.'''
-        if seed < 0:
-            random.seed()
-            random_seed = random.randint(0, 1000000)
-        else:
-            random_seed = seed
-        torch.manual_seed(random_seed)
-        image = self.decode(self.zcode(number))
-        nrow = int(math.sqrt(number) + 0.5) 
-        image = self.grid_image(image, nrow=nrow)
-        return image, random_seed
-
-    def __repr__(self):
-        """
-        Return printable string of the model.
-        """
-        fmt_str = '----------------------------------------------\n'
-        fmt_str += 'Project: '.format(self.project) + '\n'
-        fmt_str += '    Image resolution: {}\n'.format(self.resolution)
-        fmt_str += '    Z space dimension: {}\n'.format(self.z_space_dim)
-        fmt_str += '----------------------------------------------\n'
-
-        return fmt_str
-
-
-
-
-def model_load(model, path):
-    """Load model."""
-
-    if not os.path.exists(path):
-        print("Model '{}' does not exist.".format(path))
-        return
-
-    state_dict = torch.load(path, map_location=lambda storage, loc: storage)
-    target_state_dict = model.state_dict()
-    for n, p in state_dict.items():
-        if n in target_state_dict.keys():
-            target_state_dict[n].copy_(p)
-        else:
-            raise KeyError(n)
-
+import pdb
 
 def model_save(model, path):
     """Save model."""
 
     torch.save(model.state_dict(), path)
-
-
-def export_onnx():
-    """Export onnx model."""
-
-    import onnx
-    import onnxruntime
-    from onnx import optimizer
-    import numpy as np
-
-    onnx_file_name = "output/image_ganencoder.onnx"
-    model_weight_file = 'models/ImageGanEncoder.pth'
-    dummy_input = torch.randn(1, 3, 512, 512)
-
-    # 1. Create and load model.
-    model_setenv()
-    torch_model = get_model(model_weight_file)
-    torch_model.eval()
-
-    # 2. Model export
-    print("Export model ...")
-
-    input_names = ["input"]
-    output_names = ["output"]
-    dynamic_axes = {'input': {2: "height", 3: 'width'},
-                    'output': {2: "height", 3: 'width'}
-                    }
-
-    torch.onnx.export(torch_model, dummy_input, onnx_file_name,
-                  input_names=input_names,
-                  output_names=output_names,
-                  verbose=True,
-                  opset_version=11,
-                  keep_initializers_as_inputs=False,
-                  export_params=True,
-                  dynamic_axes=dynamic_axes)
-
-    # 3. Optimize model
-    print('Checking model ...')
-    onnx_model = onnx.load(onnx_file_name)
-    onnx.checker.check_model(onnx_model)
-    # https://github.com/onnx/optimizer
-
-    # 4. Visual model
-    # python -c "import netron; netron.start('output/image_zoom.onnx')"
-
-def verify_onnx():
-    """Verify onnx model."""
-
-    import onnxruntime
-    import numpy as np
-
-    model_weight_file = 'models/ImageGanEncoder.pth'
-
-    model_setenv()
-    torch_model = get_model(model_weight_file)
-    torch_model.eval()
-
-    onnx_file_name = "output/image_ganencoder.onnx"
-    onnxruntime_engine = onnxruntime.InferenceSession(onnx_file_name)
-
-    def to_numpy(tensor):
-        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
-
-    dummy_input = torch.randn(1, 3, 512, 512)
-    with torch.no_grad():
-        torch_output = torch_model(dummy_input)
-    onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
-    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
-    np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
-    print("Example1: Onnx model has been tested with ONNXRuntime, the result looks good !")
-
-    # Test dynamic axes
-    dummy_input = torch.randn(1, 3, 512, 511)
-    with torch.no_grad():
-        torch_output = torch_model(dummy_input)
-    onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
-    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
-    np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
-    print("Example2: Onnx model has been tested with ONNXRuntime, the result looks good!")
-
-    dummy_input = torch.randn(1, 3, 1024, 1024)
-    with torch.no_grad():
-        torch_output = torch_model(dummy_input)
-    onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
-    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
-    np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
-    print("Example3: Onnx model has been tested with ONNXRuntime, the result looks good!")
-
-
-def export_torch():
-    """Export torch model."""
-
-    script_file = "output/iamge_ganencoder.pt"
-    weight_file = "models/ImageGanEncoder.pth"
-
-    # 1. Load model
-    print("Loading model ...")
-    model = get_model(weight_file)
-    model.eval()
-
-    # 2. Model export
-    print("Export model ...")
-    dummy_input = torch.randn(1, 3, 512, 512)
-    traced_script_module = torch.jit.trace(model, dummy_input)
-    traced_script_module.save(script_file)
-
-
-def get_model(checkpoint):
-    """Create encoder model."""
-
-    model_setenv()
-    model = GanEncoderModel()
-    model_load(model, checkpoint)
-    device = model_device()
-    model.to(device)
-
-    return model
-
-def get_decoder_model(checkpoint):
-    """Create decode model."""
-
-    model_setenv()
-    model = GanEncoderModel()
-    model_load(model, checkpoint)
-    device = model_device()
-    model.to(device)
-
-    return model    
 
 
 class Counter(object):
@@ -275,17 +60,16 @@ def train_epoch(loader, model, optimizer, device, tag=''):
         t.set_description(tag)
 
         for data in loader:
-            images, targets = data
+            images, labels = data
             count = len(images)
 
             # Transform data to device
             images = images.to(device)
-            targets = targets.to(device)
+            labels = labels.to(device)
 
             predicts = model(images)
 
-            # xxxx--modify here
-            loss = nn.L1Loss(predicts, targets)
+            loss = nn.L1Loss()(predicts, labels)
 
             loss_value = loss.item()
             if not math.isfinite(loss_value):
@@ -317,18 +101,20 @@ def valid_epoch(loader, model, device, tag=''):
         t.set_description(tag)
 
         for data in loader:
-            images, targets = data
+            images, labels = data
             count = len(images)
 
             # Transform data to device
             images = images.to(device)
-            targets = targets.to(device)
+            labels = labels.to(device)
 
             # Predict results without calculating gradients
             with torch.no_grad():
                 predicts = model(images)
 
-            # xxxx--modify here
+            loss = nn.L1Loss()(predicts, labels)
+            loss_value = loss.item()
+
             valid_loss.update(loss_value, count)
             t.set_postfix(loss='{:.6f}'.format(valid_loss.avg))
             t.update(count)

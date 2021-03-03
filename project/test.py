@@ -14,19 +14,21 @@ import os
 
 import torch
 from data import get_data
-from model import get_model, valid_epoch, model_device
+from model import model_setenv, valid_epoch, model_device
+from encoder import get_encoder
 
 if __name__ == "__main__":
     """Test model."""
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint', type=str,
-                        default="models/ImageGanEncoder.pth", help="checkpoint file")
+    # parser.add_argument('--checkpoint', type=str,
+    #                     default="models/ImageGanEncoder.pth", help="checkpoint file")
     parser.add_argument('--bs', type=int, default=2, help="batch size")
     args = parser.parse_args()
 
     # get model
-    model = get_model(args.checkpoint)
+    model_setenv()
+    model = get_encoder()
     device = model_device()
     model = model.to(device)
 
