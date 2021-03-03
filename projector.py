@@ -14,7 +14,7 @@ from model import Generator
 
 import pdb
 
-def noise_regularize(noises):
+def noise_loss(noises):
     loss = 0
 
     for noise in noises:
@@ -113,7 +113,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--step", type=int, default=100, help="optimize iterations")
     parser.add_argument(
-        "--noise_regularize",
+        "--noise_loss",
         type=float,
         default=1e5,
         help="weight of the noise regularization",
@@ -215,10 +215,10 @@ if __name__ == "__main__":
             img_gen = img_gen.mean([3, 5])
 
         p_loss = percept(img_gen, imgs).sum()
-        n_loss = noise_regularize(noises)
+        n_loss = noise_loss(noises)
         mse_loss = F.mse_loss(img_gen, imgs)
 
-        loss = p_loss + args.noise_regularize * n_loss + args.mse * mse_loss
+        loss = p_loss + args.noise_loss * n_loss + args.mse * mse_loss
 
         optimizer.zero_grad()
         loss.backward()

@@ -247,8 +247,8 @@ if __name__ == '__main__':
         os.makedirs(dataset_dirname)
 
     if args.create:
-        create_database(train_dataset_file, 10)
-        create_database(test_dataset_file, 5)
+        create_database(train_dataset_file, 40960)
+        create_database(test_dataset_file, 512)
 
     if args.test:
         GanEncoderDatasetTest()
