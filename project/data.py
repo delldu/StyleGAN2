@@ -16,6 +16,18 @@ import torch.utils.data as data
 import torchvision.transforms as T
 import torchvision.utils as utils
 from tqdm import tqdm
+import random
+
+def sample_label(seed=-1):
+    '''Sample.'''
+    if seed < 0:
+        random.seed()
+        random_seed = random.randint(0, 1000000)
+    else:
+        random_seed = seed
+    torch.manual_seed(random_seed)
+
+    return torch.randn(1, 512)
 
 
 def grid_image(tensor_list, nrow=3):
@@ -25,20 +37,6 @@ def grid_image(tensor_list, nrow=3):
         1, 2, 0).to('cpu', torch.uint8).numpy()
     image = Image.fromarray(ndarr)
     return image
-
-def multiple_scale(data, multiple=32):
-    '''
-    Scale image to a multiple.
-    input data is tensor, with CxHxW format.
-    '''
-    C, H, W = data.shape
-    Hnew = ((H - 1) // multiple + 1)*multiple
-    Wnew = ((W - 1) // multiple + 1)*multiple
-    temp = data.new_zeros(C, Hnew, Wnew)
-    temp[:, 0:H, 0:W] = data
-
-    return temp
-
 
 def get_transform(train=True):
     """Transform images."""
@@ -66,7 +64,7 @@ class GanEncoderDataset(data.Dataset):
         for i in range(n):
             progress_bar.update(1)
 
-            label = torch.randn(512)
+            label = sample_label()
             # self.images.append(image)
             self.images.append(label)
             self.labels.append(label)

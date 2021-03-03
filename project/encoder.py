@@ -8,127 +8,149 @@
 # ***
 # ************************************************************************************/
 #
-
+import os
 import torch
 import torch.nn as nn
-
+from torchvision import models as models
+import pdb
 
 class GanEncoderModel(nn.Module):
     """GanEncoder Model."""
 
-    def __init__(self):
+    def __init__(self, z_space_dim=512):
         """Init model."""
 
         super(GanEncoderModel, self).__init__()
 
+        checkpoint = "models/ImageGanEncoder.pth"
+
+        if os.path.exists(checkpoint):
+            self.resnet50 = models.resnet50(pretrained=False)
+        else:
+            self.resnet50 = models.resnet50(pretrained=True)
+
+        for param in self.resnet50.parameters():
+            param.requires_grad = False
+
+        fc_inputs = self.resnet50.fc.in_features
+        self.resnet50.fc = nn.Sequential(nn.Linear(fc_inputs, z_space_dim), nn.Tanh())
+
+        if os.path.exists(checkpoint):
+            # load ...
+            model_weights = torch.load(checkpoint)
+            self.resnet50.load_state_dict(model_weights)
+        else:
+            # Saving weights
+            torch.save(self.resnet50.state_dict(), checkpoint)
+
     def forward(self, x):
         """Forward."""
+        return self.resnet50(x)
 
-        return x
+def get_encoder():
+    '''Get encoder'''
 
-
-class StyleCodec:
-    """Style VAE."""
-
-    def __init__(self, project="stylegan2-ffhq-config-f.pth"):
-        """Init."""
-        self.project = project
-
-        print("Start creating StyleCodec for {} ...".format(project))
-        model_setenv()
-        self.device = model_device()
-
-        # Following meet project config ...
-        self.resolution = 1024
-        self.z_space_dim = 512
-        self.generator = Generator(self.resolution, self.z_space_dim, 8)
-
-        # Load checkpoint, do factorizing ...
-        self.load()
-
-    def zcode(self, n):
-        '''Generate zcode.'''
-        return torch.randn(n, self.z_space_dim, device=self.device)
+    model = GanEncoderModel()
+    return model
 
 
-    def decode(self, wcode):
-        """input: wcode format: Bxz_space_dim [-1.0, 1.0]  tensor.
-           output: BxCxHxW [0, 1.0] tensor on CPU.
-        """
-        assert wcode.dim() == 2, "wcode must be BxS tensor."
-        with torch.no_grad():
-            img = self.generator(wcode)
-        return img.cpu()
+def export_onnx():
+    """Export onnx model."""
 
-    def encode(self, image):
-        '''input:  image with BxCxHxW [0, 1,0] Tensor
-           output: Bxz_space wcode.
-        '''
-        return self.train(image)
+    import onnx
+    import onnxruntime
+    from onnx import optimizer
+    import numpy as np
 
-    def edit(self, wcode, k, d = 5.0):
-        '''Semantic edit.
-            k -- semantic number
-            d -- semantic offset
-        '''
-        return wcode + d * self.eigen(k).unsqueeze(0)
+    onnx_file_name = "output/image_ganencoder.onnx"
+    dummy_input = torch.randn(1, 3, 256, 256)
 
-    def sample(self, number, seed=-1):
-        '''Sample.'''
-        if seed < 0:
-            random.seed()
-            random_seed = random.randint(0, 1000000)
-        else:
-            random_seed = seed
-        torch.manual_seed(random_seed)
-        image = self.decode(self.zcode(number))
-        nrow = int(math.sqrt(number) + 0.5) 
-        image = self.grid_image(image, nrow=nrow)
-        return image, random_seed
+    # 1. Create and load model.
+    torch_model = get_encoder()
+    torch_model.eval()
 
-    def eigen(self, index):
-        # eigen vectors ...
-        assert index < self.z_space_dim
-        return self.eigvec[:, index]
+    # 2. Model export
+    print("Export model ...")
 
-    def load(self):
-        '''Load ...'''
-        print("Loading project {} ...".format(self.project))
-        checkpoint = Path("models/" + self.project)
+    input_names = ["input"]
+    output_names = ["output"]
 
-        model_weights = torch.load(checkpoint)['g_ema']
-        self.generator.load_state_dict(model_weights, strict=False)
-        self.generator.eval()
-        self.generator = self.generator.to(self.device)
+    torch.onnx.export(torch_model, dummy_input, onnx_file_name,
+                  input_names=input_names,
+                  output_names=output_names,
+                  verbose=True,
+                  opset_version=11,
+                  keep_initializers_as_inputs=False,
+                  export_params=True)
 
-        # Start weight factorizing
-        modulate = {
-            k: v
-            for k, v in model_weights.items()
-            if "modulation" in k and "to_rgbs" not in k and "weight" in k
-        }
-        # (Pdb) modulate.keys()
-        # dict_keys(['conv1.conv.modulation.weight', 
-        #     'to_rgb1.conv.modulation.weight', 
-        #     'convs.0.conv.modulation.weight', 
-        #     ......
-        #     'convs.15.conv.modulation.weight'])
-        weight_mat = []
-        for k, v in modulate.items():
-            weight_mat.append(v)
-        W = torch.cat(weight_mat, 0)
-        # torch.svd(W).S, torch.svd(W).V ...
-        self.eigvec = torch.svd(W).V.to(self.device)
+    # 3. Optimize model
+    print('Checking model ...')
+    onnx_model = onnx.load(onnx_file_name)
+    onnx.checker.check_model(onnx_model)
+    # https://github.com/onnx/optimizer
 
-    def __repr__(self):
-        """
-        Return printable string of the model.
-        """
-        fmt_str = '----------------------------------------------\n'
-        fmt_str += 'Project: '.format(self.project) + '\n'
-        fmt_str += '    Image resolution: {}\n'.format(self.resolution)
-        fmt_str += '    Z space dimension: {}\n'.format(self.z_space_dim)
-        fmt_str += '----------------------------------------------\n'
+    # 4. Visual model
+    # python -c "import netron; netron.start('output/image_zoom.onnx')"
 
-        return fmt_str
+def verify_onnx():
+    """Verify onnx model."""
 
+    import onnxruntime
+    import numpy as np
+
+    torch_model = get_encoder()
+    torch_model.eval()
+
+    onnx_file_name = "output/image_ganencoder.onnx"
+    onnxruntime_engine = onnxruntime.InferenceSession(onnx_file_name)
+
+    def to_numpy(tensor):
+        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+    dummy_input = torch.randn(1, 3, 256, 256)
+    with torch.no_grad():
+        torch_output = torch_model(dummy_input)
+    onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
+    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
+    np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
+    print("Example: Onnx model has been tested with ONNXRuntime, the result looks good !")
+
+
+def export_torch():
+    """Export torch model."""
+
+    script_file = "output/iamge_ganencoder.pt"
+
+    # 1. Load model
+    print("Loading model ...")
+    model = get_encoder()
+    model.eval()
+
+    # 2. Model export
+    print("Export model ...")
+    dummy_input = torch.randn(1, 3, 256, 256)
+    traced_script_module = torch.jit.trace(model, dummy_input)
+    traced_script_module.save(script_file)
+
+if __name__ == '__main__':
+    """Onnx Tools ..."""
+    import os
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--export', help="Export onnx model", action='store_true')
+    parser.add_argument('--verify', help="Verify onnx model", action='store_true')
+    parser.add_argument('--output', type=str, default="output", help="output folder")
+
+    args = parser.parse_args()
+
+    if not os.path.exists(args.output):
+        os.makedirs(args.output)
+
+    # export_torch()
+
+    if args.export:
+        export_onnx()
+
+    if args.verify:
+        verify_onnx()

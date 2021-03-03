@@ -17,6 +17,76 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 
+class StyleCodec:
+    """Style VAE."""
+
+    def __init__(self, project="stylegan2-ffhq-config-f.pth"):
+        """Init."""
+        self.project = project
+
+        print("Start creating StyleCodec for {} ...".format(project))
+        model_setenv()
+        self.device = model_device()
+
+        # Following meet project config ...
+        self.resolution = 1024
+        self.z_space_dim = 512
+        self.generator = Generator(self.resolution, self.z_space_dim, 8)
+
+    def zcode(self, n):
+        '''Generate zcode.'''
+        return torch.randn(n, self.z_space_dim, device=self.device)
+
+
+    def decode(self, wcode):
+        """input: wcode format: Bxz_space_dim [-1.0, 1.0]  tensor.
+           output: BxCxHxW [0, 1.0] tensor on CPU.
+        """
+        assert wcode.dim() == 2, "wcode must be BxS tensor."
+        with torch.no_grad():
+            img = self.generator(wcode)
+        return img.cpu()
+
+    def encode(self, image):
+        '''input:  image with BxCxHxW [0, 1,0] Tensor
+           output: Bxz_space wcode.
+        '''
+        return self.train(image)
+
+    def edit(self, wcode, k, d = 5.0):
+        '''Semantic edit.
+            k -- semantic number
+            d -- semantic offset
+        '''
+        return wcode + d * self.eigen(k).unsqueeze(0)
+
+    def sample(self, number, seed=-1):
+        '''Sample.'''
+        if seed < 0:
+            random.seed()
+            random_seed = random.randint(0, 1000000)
+        else:
+            random_seed = seed
+        torch.manual_seed(random_seed)
+        image = self.decode(self.zcode(number))
+        nrow = int(math.sqrt(number) + 0.5) 
+        image = self.grid_image(image, nrow=nrow)
+        return image, random_seed
+
+    def __repr__(self):
+        """
+        Return printable string of the model.
+        """
+        fmt_str = '----------------------------------------------\n'
+        fmt_str += 'Project: '.format(self.project) + '\n'
+        fmt_str += '    Image resolution: {}\n'.format(self.resolution)
+        fmt_str += '    Z space dimension: {}\n'.format(self.z_space_dim)
+        fmt_str += '----------------------------------------------\n'
+
+        return fmt_str
+
+
+
 
 def model_load(model, path):
     """Load model."""
