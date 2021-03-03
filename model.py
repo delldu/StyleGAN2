@@ -247,8 +247,8 @@ class ModulatedConv2d(nn.Module):
                 batch * in_channel, self.out_channel, self.kernel_size, self.kernel_size
             )
             # xxxx8888
-            # out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
-            out = F.conv_transpose2d(input, weight, padding=0, stride=2)
+            out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
+            # out = F.conv_transpose2d(input, weight, padding=0, stride=2)
             height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
             out = self.blur(out)
@@ -268,8 +268,8 @@ class ModulatedConv2d(nn.Module):
             # self.padding -- 1
             # batch -- tensor(1)
             # xxxx8888
-            # out = F.conv2d(input, weight, padding=self.padding, groups=batch)
-            out = F.conv2d(input, weight, padding=self.padding)
+            out = F.conv2d(input, weight, padding=self.padding, groups=batch)
+            # out = F.conv2d(input, weight, padding=self.padding)
             height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
 
@@ -377,7 +377,7 @@ class NoModulatedConv2d(nn.Module):
         # batch -- tensor(1)
         # xxxx8888
         # out = F.conv2d(input, weight, padding=self.padding, groups=batch)
-        out = F.conv2d(input, weight, padding=self.padding)
+        out = F.conv2d(input, weight, padding=self.padding, groups=batch)
 
         height, width = out.shape[2], out.shape[3]
         out = out.view(batch, self.out_channel, height, width)
@@ -396,7 +396,10 @@ class NoiseInjection(nn.Module):
             batch, _, height, width = image.shape
             # xxxx8888
             # noise = image.new_empty(batch, 1, height, width).normal_()
-            noise = torch.zeros_like(image)
+            noise = torch.rand_like(image)
+            mu = noise.mean()
+            var = noise.std()
+            noise = (noise - mu)/(var + 1e-6)
         return image + self.weight * noise
 
 
