@@ -728,6 +728,7 @@ class StyleCodec:
         else:
             random_seed = seed
         torch.manual_seed(random_seed)
+        
         image = self.decode(self.zcode(number))
         nrow = int(math.sqrt(number) + 0.5) 
         image = self.grid_image(image, nrow=nrow)

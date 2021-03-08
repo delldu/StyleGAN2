@@ -99,8 +99,10 @@ def create_database(dbname, total):
 
             label_tensor = sample_label()
             with torch.no_grad():
-                image_tensor = model(label_tensor.to(device))
+                label_tensor = model.style(label_tensor.to(device))
+                image_tensor = model(label_tensor)
             image_tensor = image_tensor.cpu().squeeze()
+            label_tensor = label_tensor.cpu()
 
             image = toimage(image_tensor)
 
@@ -247,8 +249,8 @@ if __name__ == '__main__':
         os.makedirs(dataset_dirname)
 
     if args.create:
-        create_database(train_dataset_file, 40960)
-        create_database(test_dataset_file, 512)
+        create_database(train_dataset_file, 4096)
+        create_database(test_dataset_file, 256)
 
     if args.test:
         GanEncoderDatasetTest()

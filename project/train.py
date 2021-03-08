@@ -27,8 +27,8 @@ if __name__ == "__main__":
                         default="output", help="output directory")
     # parser.add_argument('--checkpoint', type=str,
     #                     default="models/ImageGanEncoder.pth", help="checkpoint file")
-    parser.add_argument('--bs', type=int, default=32, help="batch size")
-    parser.add_argument('--lr', type=float, default=1e-3, help="learning rate")
+    parser.add_argument('--bs', type=int, default=64, help="batch size")
+    parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
     parser.add_argument('--epochs', type=int, default=1000)
     args = parser.parse_args()
 
@@ -45,15 +45,15 @@ if __name__ == "__main__":
     # construct optimizer and learning rate scheduler,
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = optim.SGD(params, lr=args.lr,
-                          momentum=0.9, weight_decay=0.0005)
+                          momentum=0.9, weight_decay=0.1)
     lr_scheduler = optim.lr_scheduler.StepLR(
-        optimizer, step_size=500, gamma=0.1)
+        optimizer, step_size=100, gamma=0.9)
 
     # get data loader
     train_dl, valid_dl = get_data(trainning=True, bs=args.bs)
 
     for epoch in range(args.epochs):
-        if epoch % 100 == 0:
+        if epoch % 10 == 0:
             print("Epoch {}/{}, learning rate: {} ...".format(epoch + 1, args.epochs, lr_scheduler.get_last_lr()))
 
         train_epoch(train_dl, model, optimizer, device, tag='train')
