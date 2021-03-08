@@ -14,36 +14,6 @@ from model import Generator
 
 import pdb
 
-def noise_loss(noises):
-    loss = 0
-
-    for noise in noises:
-        size = noise.shape[2]
-
-        while True:
-            loss = (
-                loss
-                + (noise * torch.roll(noise, shifts=1, dims=3)).mean().pow(2)
-                + (noise * torch.roll(noise, shifts=1, dims=2)).mean().pow(2)
-            )
-
-            if size <= 8:
-                break
-
-            noise = noise.reshape([-1, 1, size // 2, 2, size // 2, 2])
-            noise = noise.mean([3, 5])
-            size //= 2
-
-    return loss
-
-
-def noise_normalize_(noises):
-    for noise in noises:
-        mean = noise.mean()
-        std = noise.std()
-
-        noise.data.add_(-mean).div_(std)
-
 
 def get_lr(t, initial_lr, rampdown=0.25, rampup=0.05):
     lr_ramp = min(1, (1 - t) / rampdown)
@@ -63,15 +33,12 @@ def make_image(tensor):
     return (
         tensor.detach()
         .clamp_(min=-1, max=1)
-        .add(1)
-        .div_(2)
         .mul(255)
         .type(torch.uint8)
         .permute(0, 2, 3, 1)
         .to("cpu")
         .numpy()
     )
-
 
 if __name__ == "__main__":
     device = "cuda"
@@ -112,25 +79,12 @@ if __name__ == "__main__":
         help="duration of the noise level decay",
     )
     parser.add_argument("--step", type=int, default=100, help="optimize iterations")
-    parser.add_argument(
-        "--noise_loss",
-        type=float,
-        default=1e5,
-        help="weight of the noise regularization",
-    )
-    parser.add_argument("--mse", type=float, default=0, help="weight of the mse loss")
-    parser.add_argument(
-        "--w_plus",
-        action="store_true",
-        help="allow to use distinct latent codes to each layers",
-    )
+    parser.add_argument("--mse", type=float, default=0.01, help="weight of the mse loss")
     parser.add_argument(
         "files", metavar="FILES", nargs="+", help="path to image files to be projected"
     )
 
     args = parser.parse_args()
-
-    n_mean_latent = 10000
 
     resize = min(args.size, args.image_size)
 
@@ -141,12 +95,11 @@ if __name__ == "__main__":
             transforms.CenterCrop(resize),
         ]
     )
-    transform = transforms.Compose(
+    hrtransform = transforms.Compose(
         [
             transforms.Resize(resize),
             transforms.CenterCrop(resize),
             transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
         ]
     )
 
@@ -157,7 +110,7 @@ if __name__ == "__main__":
         lrimg = lrtransform(img)
         lrimg.save("sample/lr-{}".format(os.path.basename(imgfile)))
 
-        img = transform(img)
+        img = hrtransform(img)
         imgs.append(img)
 
     imgs = torch.stack(imgs, 0).to(device)
@@ -168,29 +121,14 @@ if __name__ == "__main__":
     g_ema = g_ema.to(device)
 
     with torch.no_grad():
-        noise_sample = torch.randn(n_mean_latent, 512, device=device)
-        latent_out = g_ema.style(noise_sample)
-
-        latent_mean = latent_out.mean(0)
-        latent_std = ((latent_out - latent_mean).pow(2).sum() / n_mean_latent) ** 0.5
-    latent_in = latent_mean.detach().clone().unsqueeze(0).repeat(imgs.shape[0], 1)
+        latent_in = g_ema.mean_latent(8196)
     latent_in.requires_grad = True
 
     percept = lpips.PerceptualLoss(
         model="net-lin", net="vgg", use_gpu=device.startswith("cuda")
     )
 
-    noises = []
-    for noise in g_ema.make_noise():
-        normal_noise = noise.repeat(imgs.shape[0], 1, 1, 1).normal_()
-        normal_noise.requires_grad = True
-        noises.append(normal_noise)
-
-
-    if args.w_plus:
-        latent_in = latent_in.unsqueeze(1).repeat(1, g_ema.n_latent, 1)
-
-    optimizer = optim.Adam([latent_in] + noises, lr=args.lr)
+    optimizer = optim.Adam([latent_in], lr=args.lr)
 
     pbar = tqdm(range(args.step))
     latent_path = []
@@ -199,10 +137,10 @@ if __name__ == "__main__":
         t = i / args.step
         lr = get_lr(t, args.lr)
         optimizer.param_groups[0]["lr"] = lr
-        noise_strength = latent_std * args.noise * max(0, 1 - t / args.noise_ramp) ** 2
-        latent_n = latent_noise(latent_in, noise_strength.item())
+        noise_strength = args.noise * max(0, 1 - t / args.noise_ramp) ** 2
+        latent_n = latent_noise(latent_in, noise_strength)
 
-        img_gen = g_ema(latent_n, noise=noises)
+        img_gen = g_ema(latent_n, noise=None)
 
         batch, channel, height, width = img_gen.shape
 
@@ -215,41 +153,31 @@ if __name__ == "__main__":
             img_gen = img_gen.mean([3, 5])
 
         p_loss = percept(img_gen, imgs).sum()
-        n_loss = noise_loss(noises)
         mse_loss = F.mse_loss(img_gen, imgs)
 
-        loss = p_loss + args.noise_loss * n_loss + args.mse * mse_loss
+        loss = p_loss + args.mse * mse_loss
 
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-
-        noise_normalize_(noises)
 
         if (i + 1) % 100 == 0 or (i + 1) == args.step:
             latent_path.append(latent_in.detach().clone())
 
         pbar.set_description(
             (
-                f"perceptual: {p_loss.item():.4f}; noise regularize: {n_loss.item():.4f};"
+                f"perceptual: {p_loss.item():.4f}; "
                 f" mse: {mse_loss.item():.4f}; lr: {lr:.4f}"
             )
         )
 
-    # pdb.set_trace()
-    # (Pdb) latent_path[-1].size()
-    # torch.Size([1, 512])
-    # (Pdb) len(noises) -- 17
-    # (Pdb) noises[0].size(), noises[1].size(), noises[16].size()
-    # (torch.Size([1, 1, 4, 4]), torch.Size([1, 1, 8, 8]), torch.Size([1, 1, 1024, 1024]))
-
-    img_gen = g_ema(latent_path[-1], noise=noises)
+    img_gen = g_ema(latent_path[-1], noise=None)
 
     img_ar = make_image(img_gen)
 
     # result_file = {}
-    for i, input_name in enumerate(args.files):
-        img_name = os.path.splitext("sample/" + os.path.basename(input_name))[0] + "-project.png"
+    for i, imgfile in enumerate(args.files):
+        img_name = "sample/hr-{}".format(os.path.basename(imgfile))
         pil_img = Image.fromarray(img_ar[i])
         pil_img.save(img_name)
 

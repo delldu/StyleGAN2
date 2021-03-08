@@ -564,14 +564,14 @@ class Generator(nn.Module):
 
     def forward(
         self,
-        zcode,
+        wcode,
         noise=None,
     ):
         '''Too complex forward, it is stupid'''
         if noise is None:
             noise = [None] * self.num_layers
 
-        wcode = self.style(zcode)
+        # wcode = self.style(zcode)
         # self.n_latent -- 18
         if wcode.ndim < 3:
             latent = wcode.unsqueeze(1).repeat(1, self.n_latent, 1)
