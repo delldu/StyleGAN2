@@ -1,4 +1,4 @@
-"""Create model."""# coding=utf-8
+"""Create model."""  # coding=utf-8
 #
 # /************************************************************************************
 # ***
@@ -9,10 +9,12 @@
 # ************************************************************************************/
 #
 import os
+import pdb
+
 import torch
 import torch.nn as nn
 from torchvision import models as models
-import pdb
+
 
 class GanEncoderModel(nn.Module):
     """GanEncoder Model."""
@@ -33,7 +35,8 @@ class GanEncoderModel(nn.Module):
             param.requires_grad = False
 
         fc_inputs = self.resnet50.fc.in_features
-        self.resnet50.fc = nn.Sequential(nn.Linear(fc_inputs, z_space_dim), nn.Tanh())
+        self.resnet50.fc = nn.Sequential(
+            nn.Linear(fc_inputs, z_space_dim), nn.Tanh())
 
         if os.path.exists(checkpoint):
             # load ...
@@ -47,6 +50,7 @@ class GanEncoderModel(nn.Module):
         """Forward."""
         return self.resnet50(x).unsqueeze(1)
 
+
 def get_encoder():
     '''Get encoder'''
 
@@ -57,10 +61,10 @@ def get_encoder():
 def export_onnx():
     """Export onnx model."""
 
+    import numpy as np
     import onnx
     import onnxruntime
     from onnx import optimizer
-    import numpy as np
 
     onnx_file_name = "output/image_ganencoder.onnx"
     dummy_input = torch.randn(1, 3, 256, 256)
@@ -76,12 +80,12 @@ def export_onnx():
     output_names = ["output"]
 
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
-                  input_names=input_names,
-                  output_names=output_names,
-                  verbose=True,
-                  opset_version=11,
-                  keep_initializers_as_inputs=False,
-                  export_params=True)
+                      input_names=input_names,
+                      output_names=output_names,
+                      verbose=True,
+                      opset_version=11,
+                      keep_initializers_as_inputs=False,
+                      export_params=True)
 
     # 3. Optimize model
     print('Checking model ...')
@@ -92,11 +96,12 @@ def export_onnx():
     # 4. Visual model
     # python -c "import netron; netron.start('output/image_zoom.onnx')"
 
+
 def verify_onnx():
     """Verify onnx model."""
 
-    import onnxruntime
     import numpy as np
+    import onnxruntime
 
     torch_model = get_encoder()
     torch_model.eval()
@@ -110,9 +115,11 @@ def verify_onnx():
     dummy_input = torch.randn(1, 3, 256, 256)
     with torch.no_grad():
         torch_output = torch_model(dummy_input)
-    onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
+    onnxruntime_inputs = {
+        onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
     onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
-    np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
+    np.testing.assert_allclose(
+        to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
     print("Example: Onnx model has been tested with ONNXRuntime, the result looks good !")
 
 
@@ -132,15 +139,19 @@ def export_torch():
     traced_script_module = torch.jit.trace(model, dummy_input)
     traced_script_module.save(script_file)
 
+
 if __name__ == '__main__':
     """Onnx Tools ..."""
-    import os
     import argparse
+    import os
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--export', help="Export onnx model", action='store_true')
-    parser.add_argument('--verify', help="Verify onnx model", action='store_true')
-    parser.add_argument('--output', type=str, default="output", help="output folder")
+    parser.add_argument(
+        '--export', help="Export onnx model", action='store_true')
+    parser.add_argument(
+        '--verify', help="Verify onnx model", action='store_true')
+    parser.add_argument('--output', type=str,
+                        default="output", help="output folder")
 
     args = parser.parse_args()
 

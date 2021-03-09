@@ -1,4 +1,4 @@
-"""Model predict."""# coding=utf-8
+"""Model predict."""  # coding=utf-8
 #
 # /************************************************************************************
 # ***
@@ -16,13 +16,15 @@ import torch
 import torchvision.transforms as transforms
 from PIL import Image
 from tqdm import tqdm
+
 from model import get_model, model_device
 
 if __name__ == "__main__":
     """Predict."""
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--checkpoint', type=str, default="models/ImageGanEncoder.pth", help="checkpint file")
+    parser.add_argument('--checkpoint', type=str,
+                        default="models/ImageGanEncoder.pth", help="checkpint file")
     parser.add_argument('--input', type=str, required=True, help="input image")
     args = parser.parse_args()
 
@@ -35,7 +37,7 @@ if __name__ == "__main__":
     toimage = transforms.ToPILImage()
 
     image_filenames = glob.glob(args.input)
-    progress_bar = tqdm(total = len(image_filenames))
+    progress_bar = tqdm(total=len(image_filenames))
 
     for index, filename in enumerate(image_filenames):
         progress_bar.update(1)

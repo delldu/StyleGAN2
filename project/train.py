@@ -15,9 +15,11 @@ import os
 
 import torch
 import torch.optim as optim
+
 from data import get_data
-from model import model_setenv, model_device, model_save, train_epoch, valid_epoch
 from encoder import get_encoder
+from model import (model_device, model_save, model_setenv, train_epoch,
+                   valid_epoch)
 
 if __name__ == "__main__":
     """Trainning model."""
@@ -54,7 +56,8 @@ if __name__ == "__main__":
 
     for epoch in range(args.epochs):
         if epoch % 10 == 0:
-            print("Epoch {}/{}, learning rate: {} ...".format(epoch + 1, args.epochs, lr_scheduler.get_last_lr()))
+            print("Epoch {}/{}, learning rate: {} ...".format(epoch +
+                                                              1, args.epochs, lr_scheduler.get_last_lr()))
 
         train_epoch(train_dl, model, optimizer, device, tag='train')
 
@@ -63,4 +66,5 @@ if __name__ == "__main__":
         lr_scheduler.step()
 
         if epoch == (args.epochs // 2) or (epoch == args.epochs - 1):
-            model_save(model, os.path.join(args.outputdir, "latest-checkpoint-{:04d}.pth".format(epoch)))
+            model_save(model, os.path.join(args.outputdir,
+                                           "latest-checkpoint-{:04d}.pth".format(epoch)))

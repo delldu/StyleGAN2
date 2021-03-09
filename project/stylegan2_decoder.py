@@ -27,14 +27,15 @@ def upfirdn2d_native(
     out = out.view(-1, in_h * up_y, in_w * up_x, minor)
 
     out = F.pad(
-        out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)]
+        out, [0, 0, max(pad_x0, 0), max(pad_x1, 0),
+              max(pad_y0, 0), max(pad_y1, 0)]
     )
 
     # xxxx8888
     out = out[
         :,
-        max(-pad_y0, 0) : out.shape[1] - max(-pad_y1, 0),
-        max(-pad_x0, 0) : out.shape[2] - max(-pad_x1, 0),
+        max(-pad_y0, 0): out.shape[1] - max(-pad_y1, 0),
+        max(-pad_x0, 0): out.shape[2] - max(-pad_x1, 0),
         :,
     ]
 
@@ -111,7 +112,8 @@ class Upsample(nn.Module):
         self.pad = (pad0, pad1)
 
     def forward(self, input):
-        out = upfirdn2d(input, self.kernel, up=self.factor, down=1, pad=self.pad)
+        out = upfirdn2d(input, self.kernel, up=self.factor,
+                        down=1, pad=self.pad)
 
         return out
 
@@ -195,7 +197,8 @@ class ModulatedConv2d(nn.Module):
             pad0 = (p + 1) // 2 + factor - 1
             pad1 = p // 2 + 1
 
-            self.blur = Blur(blur_kernel, pad=(pad0, pad1), upsample_factor=factor)
+            self.blur = Blur(blur_kernel, pad=(
+                pad0, pad1), upsample_factor=factor)
 
         if downsample:
             factor = 2
@@ -242,7 +245,8 @@ class ModulatedConv2d(nn.Module):
             weight = weight.transpose(1, 2).reshape(
                 batch * in_channel, self.out_channel, self.kernel_size, self.kernel_size
             )
-            out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
+            out = F.conv_transpose2d(
+                input, weight, padding=0, stride=2, groups=batch)
             height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
             out = self.blur(out)
@@ -358,10 +362,10 @@ class StyledConv(nn.Module):
     ):
         super().__init__()
 
-        self.conv = ModulatedConv2d(in_channel, out_channel, kernel_size, z_space_dim, 
-            upsample=upsample,
-            blur_kernel=blur_kernel
-        )
+        self.conv = ModulatedConv2d(in_channel, out_channel, kernel_size, z_space_dim,
+                                    upsample=upsample,
+                                    blur_kernel=blur_kernel
+                                    )
 
         self.noise = NoiseInjection()
         self.activate = FusedLeakyReLU(out_channel)
@@ -399,27 +403,32 @@ class ToRGB(nn.Module):
 class Generator(nn.Module):
     def __init__(
         self,
-        size = 1024,
-        z_space_dim = 512,
-        n_mlp = 8,
+        resolution=1024,
+        z_space_dim=512,
+        n_mlp=8,
         channel_multiplier=2,
         blur_kernel=[1, 3, 3, 1],
         lr_mlp=0.01,
     ):
         super().__init__()
 
-        self.size = size
+        self.resolution = resolution
 
         self.z_space_dim = z_space_dim
         self.n_mlp = n_mlp
         self.channel_multiplier = channel_multiplier
+
+        self.log_size = int(math.log(resolution, 2))
+        self.num_layers = (self.log_size - 2) * 2 + 1
+        self.num_latents = self.log_size * 2 - 2
 
         layers = [PixelNorm()]
 
         for i in range(n_mlp):
             # bias=True, bias_init=0, lr_mul=1, activation=None
             layers.append(
-                EqualLinear(z_space_dim, z_space_dim, lr_mul=lr_mlp, activation="fused_lrelu")
+                EqualLinear(z_space_dim, z_space_dim,
+                            lr_mul=lr_mlp, activation="fused_lrelu")
             )
 
         self.style = nn.Sequential(*layers)
@@ -437,11 +446,9 @@ class Generator(nn.Module):
         }
 
         self.input = ConstantInput(self.channels[4])
-        self.conv1 = StyledConv(self.channels[4], self.channels[4], 3, z_space_dim, blur_kernel=blur_kernel)
+        self.conv1 = StyledConv(
+            self.channels[4], self.channels[4], 3, z_space_dim, blur_kernel=blur_kernel)
         self.to_rgb1 = ToRGB(self.channels[4], z_space_dim, upsample=False)
-
-        self.log_size = int(math.log(size, 2))
-        self.num_layers = (self.log_size - 2) * 2 + 1
 
         self.convs = nn.ModuleList()
         self.upsamples = nn.ModuleList()
@@ -453,26 +460,27 @@ class Generator(nn.Module):
         for layer_idx in range(self.num_layers):
             res = (layer_idx + 5) // 2
             shape = [1, 1, 2 ** res, 2 ** res]
-            self.noises.register_buffer(f"noise_{layer_idx}", torch.randn(*shape))
+            self.noises.register_buffer(
+                f"noise_{layer_idx}", torch.randn(*shape))
 
         for i in range(3, self.log_size + 1):
             out_channel = self.channels[2 ** i]
 
             self.convs.append(
-                StyledConv(in_channel, out_channel, 3, z_space_dim, upsample=True, blur_kernel=blur_kernel)
+                StyledConv(in_channel, out_channel, 3, z_space_dim,
+                           upsample=True, blur_kernel=blur_kernel)
             )
 
             self.convs.append(
-                StyledConv(out_channel, out_channel, 3, z_space_dim, blur_kernel=blur_kernel)
+                StyledConv(out_channel, out_channel, 3,
+                           z_space_dim, blur_kernel=blur_kernel)
             )
 
             self.to_rgbs.append(ToRGB(out_channel, z_space_dim))
 
             in_channel = out_channel
 
-        self.n_latent = self.log_size * 2 - 2
-
-        self.last_latent = None
+        self.last_latent = torch.zeros(1, self.num_latents, self.z_space_dim)
         self.eigvectors = torch.zeros(z_space_dim, z_space_dim)
 
     def forward(self, wcode, noise=None):
@@ -480,9 +488,9 @@ class Generator(nn.Module):
             noise = [None] * self.num_layers
 
         # wcode = self.style(zcode)
-        # self.n_latent -- 18
+        # self.num_latents -- 18
         if wcode.ndim < 3:
-            latent = wcode.unsqueeze(1).repeat(1, self.n_latent, 1)
+            latent = wcode.unsqueeze(1).repeat(1, self.num_latents, 1)
         else:
             latent = wcode
 
@@ -518,6 +526,7 @@ class Generator(nn.Module):
         assert index < self.z_space_dim
         return self.eigvectors[:, index]
 
+
 def get_decoder():
     ''' Get generator'''
 
@@ -536,9 +545,9 @@ def get_decoder():
         if "modulation" in k and "to_rgbs" not in k and "weight" in k
     }
     # (Pdb) modulate.keys()
-    # dict_keys(['conv1.conv.modulation.weight', 
-    #     'to_rgb1.conv.modulation.weight', 
-    #     'convs.0.conv.modulation.weight', 
+    # dict_keys(['conv1.conv.modulation.weight',
+    #     'to_rgb1.conv.modulation.weight',
+    #     'convs.0.conv.modulation.weight',
     #     ......
     #     'convs.15.conv.modulation.weight'])
     weight_mat = []
@@ -557,10 +566,10 @@ def get_decoder():
 def export_onnx():
     """Export onnx model."""
 
+    import numpy as np
     import onnx
     import onnxruntime
     from onnx import optimizer
-    import numpy as np
 
     onnx_file_name = "output/image_gandecoder.onnx"
     dummy_input = torch.randn(1, 512)
@@ -576,12 +585,12 @@ def export_onnx():
     output_names = ["output"]
 
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
-                  input_names=input_names,
-                  output_names=output_names,
-                  verbose=True,
-                  opset_version=11,
-                  keep_initializers_as_inputs=False,
-                  export_params=True)
+                      input_names=input_names,
+                      output_names=output_names,
+                      verbose=True,
+                      opset_version=11,
+                      keep_initializers_as_inputs=False,
+                      export_params=True)
 
     # 3. Optimize model
     print('Checking model ...')
@@ -596,8 +605,8 @@ def export_onnx():
 def verify_onnx():
     """Verify onnx model."""
 
-    import onnxruntime
     import numpy as np
+    import onnxruntime
 
     torch_model = get_decoder()
     torch_model.eval()
@@ -611,9 +620,11 @@ def verify_onnx():
     dummy_input = torch.randn(1, 512)
     with torch.no_grad():
         torch_output = torch_model(dummy_input)
-    onnxruntime_inputs = {onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
+    onnxruntime_inputs = {
+        onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
     onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
-    np.testing.assert_allclose(to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
+    np.testing.assert_allclose(
+        to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
     print("Example: Onnx model has been tested with ONNXRuntime, the result looks good !")
 
 
@@ -630,19 +641,23 @@ def export_torch():
     # 2. Model export
     print("Export model ...")
     dummy_input = torch.randn(1, 512)
-    traced_script_module = torch.jit.trace(model, dummy_input, _force_outplace=True)
+    traced_script_module = torch.jit.trace(
+        model, dummy_input, _force_outplace=True)
     traced_script_module.save(script_file)
 
 
 if __name__ == '__main__':
     """Onnx Tools ..."""
-    import os
     import argparse
+    import os
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--export', help="Export onnx model", action='store_true')
-    parser.add_argument('--verify', help="Verify onnx model", action='store_true')
-    parser.add_argument('--output', type=str, default="output", help="output folder")
+    parser.add_argument(
+        '--export', help="Export onnx model", action='store_true')
+    parser.add_argument(
+        '--verify', help="Verify onnx model", action='store_true')
+    parser.add_argument('--output', type=str,
+                        default="output", help="output folder")
 
     args = parser.parse_args()
 

@@ -13,9 +13,10 @@ import argparse
 import os
 
 import torch
+
 from data import get_data
-from model import model_setenv, valid_epoch, model_device
 from encoder import get_encoder
+from model import model_device, model_setenv, valid_epoch
 
 if __name__ == "__main__":
     """Test model."""

@@ -1,4 +1,4 @@
-"""Data loader."""# coding=utf-8
+"""Data loader."""  # coding=utf-8
 #
 # /************************************************************************************
 # ***
@@ -10,25 +10,27 @@
 #
 
 import os
+import pdb
+import random
+from io import BytesIO
+
+import lmdb
+import numpy as np
 import torch
-from PIL import Image
 import torch.utils.data as data
 import torchvision.transforms as T
 import torchvision.utils as utils
+from PIL import Image
 from tqdm import tqdm
-import random
-import lmdb
-from io import BytesIO
-import numpy as np
-from stylegan2 import get_decoder
-from model import model_device, model_setenv
 
-import pdb
+from model import model_device, model_setenv
+from stylegan2_decoder import get_decoder
 
 dataset_dirname = "dataset"
 train_dataset_file = "{}/train".format(dataset_dirname)
 test_dataset_file = "{}/test".format(dataset_dirname)
-image_size = 224
+image_size = 256
+
 
 def image_to_bytes(image):
     '''Transform PIL image to bytes'''
@@ -37,11 +39,13 @@ def image_to_bytes(image):
     image.save(buffer, format="jpeg", quality=100)
     return buffer.getvalue()
 
+
 def bytes_to_image(bytes):
     '''Transform bytes to PIL image'''
 
     buffer = BytesIO(bytes)
     return Image.open(buffer).convert("RGB")
+
 
 def label_to_bytes(label):
     '''Transform label = torch.randn(1, 512) to bytes'''
@@ -49,6 +53,7 @@ def label_to_bytes(label):
     buffer = BytesIO()
     np.save(buffer, label.numpy())
     return buffer.getvalue()
+
 
 def bytes_to_label(bytes):
     ''' Save label to lmdb, label = torch.randn(1, 512)'''
@@ -70,10 +75,10 @@ def sample_label(seed=-1):
 
     return torch.randn(1, 512)
 
+
 def create_database(dbname, total):
     ''' Create database.'''
     model_setenv()
-
 
     model = get_decoder()
     device = model_device()
@@ -88,7 +93,7 @@ def create_database(dbname, total):
     )
     print("Creating dataset {} ...".format(dbname))
 
-    progress_bar = tqdm(total = total)
+    progress_bar = tqdm(total=total)
     with lmdb.open(dbname, map_size=1024 ** 4, readahead=False) as env:
         # prepare(env, imgset, args.n_worker, sizes=sizes, resample=resample)
         for i in range(total):
@@ -129,6 +134,7 @@ def grid_image(tensor_list, nrow=3):
     image = Image.fromarray(ndarr)
     return image
 
+
 def get_transform(train=True):
     """Transform images."""
     ts = T.Compose(
@@ -151,12 +157,14 @@ class GanEncoderDataset(data.Dataset):
         self.dbname = dbname
         self.transforms = transforms
 
-        self.env = lmdb.open(dbname, max_readers=32, readonly=True, lock=False, readahead=False, meminit=False)
+        self.env = lmdb.open(dbname, max_readers=32, readonly=True,
+                             lock=False, readahead=False, meminit=False)
         if not self.env:
             raise IOError('Cannot open lmdb dataset', dbname)
 
         with self.env.begin(write=False) as txn:
-            self.total_numbers = int(txn.get('length'.encode('utf-8')).decode('utf-8'))
+            self.total_numbers = int(
+                txn.get('length'.encode('utf-8')).decode('utf-8'))
 
     def __getitem__(self, index):
         """Load images."""
@@ -186,8 +194,10 @@ class GanEncoderDataset(data.Dataset):
         fmt_str += '    Number of samples: {}\n'.format(self.__len__())
         fmt_str += '    Dataset Nmae: {}\n'.format(self.dbname)
         tmp = '    Transforms: '
-        fmt_str += '{0}{1}\n'.format(tmp, self.transforms.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
+        fmt_str += '{0}{1}\n'.format(
+            tmp, self.transforms.__repr__().replace('\n', '\n' + ' ' * len(tmp)))
         return fmt_str
+
 
 def train_data(bs):
     """Get data loader for trainning & validating, bs means batch_size."""
@@ -204,16 +214,20 @@ def train_data(bs):
     train_ds = data.Subset(train_ds, indices)
 
     # Define training and validation data loaders
-    train_dl = data.DataLoader(train_ds, batch_size=bs, shuffle=True, num_workers=4)
-    valid_dl = data.DataLoader(valid_ds, batch_size=bs, shuffle=False, num_workers=4)
+    train_dl = data.DataLoader(
+        train_ds, batch_size=bs, shuffle=True, num_workers=4)
+    valid_dl = data.DataLoader(
+        valid_ds, batch_size=bs, shuffle=False, num_workers=4)
 
     return train_dl, valid_dl
+
 
 def test_data(bs):
     """Get data loader for test, bs means batch_size."""
 
     test_ds = GanEncoderDataset(test_dataset_file, get_transform(train=False))
-    test_dl = data.DataLoader(test_ds, batch_size=bs, shuffle=False, num_workers=4)
+    test_dl = data.DataLoader(test_ds, batch_size=bs,
+                              shuffle=False, num_workers=4)
 
     return test_dl
 
@@ -222,6 +236,7 @@ def get_data(trainning=True, bs=4):
     """Get data loader for trainning & validating, bs means batch_size."""
 
     return train_data(bs) if trainning else test_data(bs)
+
 
 def GanEncoderDatasetTest():
     """Test dataset ..."""
@@ -234,6 +249,7 @@ def GanEncoderDatasetTest():
     # ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).to('cpu', torch.uint8).numpy()
     # image = Image.fromarray(ndarr)
     # image.show()
+
 
 if __name__ == '__main__':
     """Create train/test database ..."""
