@@ -17,7 +17,7 @@ import torch
 import torch.optim as optim
 
 from data import get_data
-from encoder import get_encoder
+from stylegan2_encoder import get_encoder
 from model import (model_device, model_save, model_setenv, train_epoch,
                    valid_epoch)
 
@@ -29,9 +29,9 @@ if __name__ == "__main__":
                         default="output", help="output directory")
     # parser.add_argument('--checkpoint', type=str,
     #                     default="models/ImageGanEncoder.pth", help="checkpoint file")
-    parser.add_argument('--bs', type=int, default=64, help="batch size")
+    parser.add_argument('--bs', type=int, default=32, help="batch size")
     parser.add_argument('--lr', type=float, default=1e-2, help="learning rate")
-    parser.add_argument('--epochs', type=int, default=1000)
+    parser.add_argument('--epochs', type=int, default=100)
     args = parser.parse_args()
 
     # Create directory to store weights

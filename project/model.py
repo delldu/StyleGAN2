@@ -67,6 +67,7 @@ def train_epoch(loader, model, optimizer, device, tag=''):
             # Transform data to device
             images = images.to(device)
             labels = labels.to(device)
+            labels = labels.repeat(1, model.output_latents, 1)
 
             predicts = model(images)
 
@@ -80,7 +81,7 @@ def train_epoch(loader, model, optimizer, device, tag=''):
             # Update loss
             total_loss.update(loss_value, count)
 
-            t.set_postfix(loss='{:.6f}'.format(total_loss.avg))
+            t.set_postfix(loss='>{:.6f}'.format(total_loss.avg))
             t.update(count)
 
             # Optimizer
@@ -108,6 +109,7 @@ def valid_epoch(loader, model, device, tag=''):
             # Transform data to device
             images = images.to(device)
             labels = labels.to(device)
+            labels = labels.repeat(1, model.output_latents, 1)
 
             # Predict results without calculating gradients
             with torch.no_grad():
@@ -117,7 +119,7 @@ def valid_epoch(loader, model, device, tag=''):
             loss_value = loss.item()
 
             valid_loss.update(loss_value, count)
-            t.set_postfix(loss='{:.6f}'.format(valid_loss.avg))
+            t.set_postfix(loss='---{:.6f}'.format(valid_loss.avg))
             t.update(count)
 
 

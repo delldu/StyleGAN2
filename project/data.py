@@ -140,7 +140,7 @@ def get_transform(train=True):
     ts = T.Compose(
         [
             T.ToTensor(),
-            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            # T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ]
     )
 
@@ -265,8 +265,8 @@ if __name__ == '__main__':
         os.makedirs(dataset_dirname)
 
     if args.create:
-        create_database(train_dataset_file, 4096)
-        create_database(test_dataset_file, 256)
+        create_database(train_dataset_file, 256)
+        create_database(test_dataset_file, 32)
 
     if args.test:
         GanEncoderDatasetTest()

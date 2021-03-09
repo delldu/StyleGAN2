@@ -104,29 +104,20 @@ class StyleGAN2Encoder(nn.Module):
         # image_channels = 3
         # encoder_channels_base = 64
         # encoder_channels_max = 1024
+        self.output_latents = int(math.log(1024, 2)) * 2 - 2
 
     def forward(self, x):
         # (Pdb) x.size() -- torch.Size([1, 3, 256, 256])
-
-        if x.ndim != 4 or x.shape[1:] != (
-                self.image_channels, self.resolution, self.resolution):
-            raise ValueError(f'The input image should be with shape [batch_size, '
-                             f'channel, height, width], where '
-                             f'`channel` equals to {self.image_channels}, '
-                             f'`height` and `width` equal to {self.resolution}!\n'
-                             f'But {x.shape} is received!')
-
+        batch = x.shape[0]
         for block_idx in range(self.num_blocks):
             if 0 < block_idx < self.num_blocks - 1:
                 x = self.downsample(x)
             x = self.__getattr__(f'block{block_idx}')(x)
-        # pdb.set_trace()
         # (Pdb) x.size() -- torch.Size([1, 7168])
-        # ==> 1, 14, 512 ==> expand 1, 18, 512 ...
-        # 18x512= 9216
-        # .view(1, *self.encode_dim)
-
-        return x
+        # ==> 1, 14, 512 ==> expand 1, 18, 512, for 18x512= 9216
+        x = x.view(batch, -1, self.w_space_dim)
+        pad = x[:, -1:, :].repeat(1, self.output_latents - x.shape[1], 1)
+        return torch.cat([x, pad], dim = 1)
 
 
 class AveragePoolingLayer(nn.Module):
@@ -351,6 +342,10 @@ def get_encoder():
     '''Get encoder'''
 
     model = StyleGAN2Encoder()
+    checkpoint = "models/ImageGanEncoder.pth"
+    model_weights = torch.load(checkpoint)
+    model.load_state_dict(model_weights)
+
     return model
 
 
@@ -411,6 +406,7 @@ def verify_onnx():
     dummy_input = torch.randn(1, 3, 256, 256)
     with torch.no_grad():
         torch_output = torch_model(dummy_input)
+
     onnxruntime_inputs = {
         onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
     onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)

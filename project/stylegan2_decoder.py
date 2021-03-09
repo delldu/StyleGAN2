@@ -178,7 +178,7 @@ class ModulatedConv2d(nn.Module):
         in_channel,
         out_channel,
         kernel_size,
-        z_space_dim,
+        w_space_dim,
         upsample=False,
         downsample=False,
         blur_kernel=[1, 3, 3, 1],
@@ -216,7 +216,7 @@ class ModulatedConv2d(nn.Module):
             torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
         )
 
-        self.modulation = EqualLinear(z_space_dim, in_channel, bias_init=1)
+        self.modulation = EqualLinear(w_space_dim, in_channel, bias_init=1)
 
     def __repr__(self):
         return (
@@ -278,7 +278,7 @@ class NoModulatedConv2d(nn.Module):
         in_channel,
         out_channel,
         kernel_size,
-        z_space_dim
+        w_space_dim
     ):
         super().__init__()
 
@@ -294,7 +294,7 @@ class NoModulatedConv2d(nn.Module):
             torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
         )
 
-        self.modulation = EqualLinear(z_space_dim, in_channel, bias_init=1)
+        self.modulation = EqualLinear(w_space_dim, in_channel, bias_init=1)
 
     def __repr__(self):
         return (
@@ -356,13 +356,13 @@ class StyledConv(nn.Module):
         in_channel,
         out_channel,
         kernel_size,
-        z_space_dim,
+        w_space_dim,
         upsample=False,
         blur_kernel=[1, 3, 3, 1],
     ):
         super().__init__()
 
-        self.conv = ModulatedConv2d(in_channel, out_channel, kernel_size, z_space_dim,
+        self.conv = ModulatedConv2d(in_channel, out_channel, kernel_size, w_space_dim,
                                     upsample=upsample,
                                     blur_kernel=blur_kernel
                                     )
@@ -379,13 +379,13 @@ class StyledConv(nn.Module):
 
 
 class ToRGB(nn.Module):
-    def __init__(self, in_channel, z_space_dim, upsample=True, blur_kernel=[1, 3, 3, 1]):
+    def __init__(self, in_channel, w_space_dim, upsample=True, blur_kernel=[1, 3, 3, 1]):
         super().__init__()
 
         if upsample:
             self.upsample = Upsample(blur_kernel)
 
-        self.conv = NoModulatedConv2d(in_channel, 3, 1, z_space_dim)
+        self.conv = NoModulatedConv2d(in_channel, 3, 1, w_space_dim)
         self.bias = nn.Parameter(torch.zeros(1, 3, 1, 1))
 
     def forward(self, input, style, skip=None):
@@ -404,7 +404,7 @@ class Generator(nn.Module):
     def __init__(
         self,
         resolution=1024,
-        z_space_dim=512,
+        w_space_dim=512,
         n_mlp=8,
         channel_multiplier=2,
         blur_kernel=[1, 3, 3, 1],
@@ -414,7 +414,7 @@ class Generator(nn.Module):
 
         self.resolution = resolution
 
-        self.z_space_dim = z_space_dim
+        self.w_space_dim = w_space_dim
         self.n_mlp = n_mlp
         self.channel_multiplier = channel_multiplier
 
@@ -427,7 +427,7 @@ class Generator(nn.Module):
         for i in range(n_mlp):
             # bias=True, bias_init=0, lr_mul=1, activation=None
             layers.append(
-                EqualLinear(z_space_dim, z_space_dim,
+                EqualLinear(w_space_dim, w_space_dim,
                             lr_mul=lr_mlp, activation="fused_lrelu")
             )
 
@@ -447,8 +447,8 @@ class Generator(nn.Module):
 
         self.input = ConstantInput(self.channels[4])
         self.conv1 = StyledConv(
-            self.channels[4], self.channels[4], 3, z_space_dim, blur_kernel=blur_kernel)
-        self.to_rgb1 = ToRGB(self.channels[4], z_space_dim, upsample=False)
+            self.channels[4], self.channels[4], 3, w_space_dim, blur_kernel=blur_kernel)
+        self.to_rgb1 = ToRGB(self.channels[4], w_space_dim, upsample=False)
 
         self.convs = nn.ModuleList()
         self.upsamples = nn.ModuleList()
@@ -467,21 +467,21 @@ class Generator(nn.Module):
             out_channel = self.channels[2 ** i]
 
             self.convs.append(
-                StyledConv(in_channel, out_channel, 3, z_space_dim,
+                StyledConv(in_channel, out_channel, 3, w_space_dim,
                            upsample=True, blur_kernel=blur_kernel)
             )
 
             self.convs.append(
                 StyledConv(out_channel, out_channel, 3,
-                           z_space_dim, blur_kernel=blur_kernel)
+                           w_space_dim, blur_kernel=blur_kernel)
             )
 
-            self.to_rgbs.append(ToRGB(out_channel, z_space_dim))
+            self.to_rgbs.append(ToRGB(out_channel, w_space_dim))
 
             in_channel = out_channel
 
-        self.last_latent = torch.zeros(1, self.num_latents, self.z_space_dim)
-        self.eigvectors = torch.zeros(z_space_dim, z_space_dim)
+        self.last_latent = torch.zeros(1, self.num_latents, self.w_space_dim)
+        self.eigvectors = torch.zeros(w_space_dim, w_space_dim)
 
     def forward(self, wcode, noise=None):
         if noise is None:
@@ -523,14 +523,14 @@ class Generator(nn.Module):
 
     def eigen(self, index):
         # eigen vector for dim index ...
-        assert index < self.z_space_dim
+        assert index < self.w_space_dim
         return self.eigvectors[:, index]
 
 
 def get_decoder():
     ''' Get generator'''
 
-    # resolution, z_space_dim, n_mlp
+    # resolution, w_space_dim, n_mlp
     print("Creating decoder ...")
     model = Generator(1024, 512, 8)
     checkpoint = "models/ImageGanDecoder.pth"
