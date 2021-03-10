@@ -400,6 +400,24 @@ class ToRGB(nn.Module):
         return out
 
 
+class StyleGAN2Transformer(nn.Module):
+    def __init__(self, w_space_dim=512, n_mlp=8, lr_mlp=0.01):
+        super().__init__()
+
+        layers = [PixelNorm()]
+        for i in range(n_mlp):
+            # bias=True, bias_init=0, lr_mul=1, activation=None
+            layers.append(
+                EqualLinear(w_space_dim, w_space_dim, lr_mul=lr_mlp, activation="fused_lrelu")
+            )
+
+        self.style = nn.Sequential(*layers)
+
+    def forward(self, zcode):
+        '''Transform zcode to wcode.'''
+        return self.style(zcode)
+
+
 class Generator(nn.Module):
     def __init__(
         self,
@@ -422,16 +440,15 @@ class Generator(nn.Module):
         self.num_layers = (self.log_size - 2) * 2 + 1
         self.num_latents = self.log_size * 2 - 2
 
-        layers = [PixelNorm()]
-
-        for i in range(n_mlp):
-            # bias=True, bias_init=0, lr_mul=1, activation=None
-            layers.append(
-                EqualLinear(w_space_dim, w_space_dim,
-                            lr_mul=lr_mlp, activation="fused_lrelu")
-            )
-
-        self.style = nn.Sequential(*layers)
+        # layers = [PixelNorm()]
+        # for i in range(n_mlp):
+        #     # bias=True, bias_init=0, lr_mul=1, activation=None
+        #     layers.append(
+        #         EqualLinear(w_space_dim, w_space_dim,
+        #                     lr_mul=lr_mlp, activation="fused_lrelu")
+        #     )
+        # self.style = nn.Sequential(*layers)
+        self.style = StyleGAN2Transformer(w_space_dim, n_mlp, lr_mlp).style
 
         self.channels = {
             4: 512,
@@ -538,27 +555,54 @@ def get_decoder():
     model.load_state_dict(model_weights)
 
     # Start weight factorizing
-    print("Factorizing decoder weights ...")
-    modulate = {
-        k: v
-        for k, v in model_weights.items()
-        if "modulation" in k and "to_rgbs" not in k and "weight" in k
-    }
-    # (Pdb) modulate.keys()
-    # dict_keys(['conv1.conv.modulation.weight',
-    #     'to_rgb1.conv.modulation.weight',
-    #     'convs.0.conv.modulation.weight',
-    #     ......
-    #     'convs.15.conv.modulation.weight'])
-    weight_mat = []
-    for k, v in modulate.items():
-        weight_mat.append(v)
-    W = torch.cat(weight_mat, 0)
-    # torch.svd(W).S, torch.svd(W).V ...
-    model.eigvectors = torch.svd(W).V
+    if False:
+        print("Factorizing decoder weights ...")
+        modulate = {
+            k: v
+            for k, v in model_weights.items()
+            if "modulation" in k and "to_rgbs" not in k and "weight" in k
+        }
+        # (Pdb) modulate.keys()
+        # dict_keys(['conv1.conv.modulation.weight',
+        #     'to_rgb1.conv.modulation.weight',
+        #     'convs.0.conv.modulation.weight',
+        #     ......
+        #     'convs.15.conv.modulation.weight'])
+        weight_mat = []
+        for k, v in modulate.items():
+            weight_mat.append(v)
+        W = torch.cat(weight_mat, 0)
+        # torch.svd(W).S, torch.svd(W).V ...
+        model.eigvectors = torch.svd(W).V
 
-    # (Pdb) eigvectors.size()
-    # torch.Size([512, 512])
+        # (Pdb) eigvectors.size()
+        # torch.Size([512, 512])
+
+    return model
+
+def get_transformer():
+    ''' Get transformer'''
+
+    # resolution, w_space_dim, n_mlp
+    print("Creating transformer weight file ...")
+    checkpoint = "models/ImageGanTransformer.pth"
+
+    model = StyleGAN2Transformer()
+    if not os.path.exists(checkpoint):
+        # Create 
+        decoder = get_decoder()
+        source_state_dict = decoder.style.state_dict()
+        target_state_dict = model.state_dict()
+        for n, p in source_state_dict.items():
+            tn = "style." + n
+            if tn in target_state_dict.keys():
+                target_state_dict[tn].copy_(p)
+            else:
+                raise KeyError(tn)
+        torch.save(model.state_dict(), checkpoint)
+
+    model_weights = torch.load(checkpoint)
+    model.load_state_dict(model_weights)
 
     return model
 
@@ -571,6 +615,7 @@ def export_onnx():
     import onnxruntime
     from onnx import optimizer
 
+    # ------- For Decoder -----------------------
     onnx_file_name = "output/image_gandecoder.onnx"
     dummy_input = torch.randn(1, 512)
 
@@ -579,7 +624,39 @@ def export_onnx():
     torch_model.eval()
 
     # 2. Model export
-    print("Export model ...")
+    print("Export decoder model ...")
+
+    input_names = ["input"]
+    output_names = ["output"]
+
+    torch.onnx.export(torch_model, dummy_input, onnx_file_name,
+                      input_names=input_names,
+                      output_names=output_names,
+                      verbose=True,
+                      opset_version=11,
+                      keep_initializers_as_inputs=False,
+                      export_params=True)
+
+    # 3. Optimize model
+    print('Checking model ...')
+    onnx_model = onnx.load(onnx_file_name)
+    onnx.checker.check_model(onnx_model)
+    # https://github.com/onnx/optimizer
+
+    # 4. Visual model
+    # python -c "import netron; netron.start('output/image_zoom.onnx')"
+
+
+    # ------- For Transformer -----------------------
+    onnx_file_name = "output/image_gantransformer.onnx"
+    dummy_input = torch.randn(1, 512)
+
+    # 1. Create and load model.
+    torch_model = get_transformer()
+    torch_model.eval()
+
+    # 2. Model export
+    print("Export transformer model ...")
 
     input_names = ["input"]
     output_names = ["output"]
@@ -608,10 +685,10 @@ def verify_onnx():
     import numpy as np
     import onnxruntime
 
+    # ------- For Decoder -----------------------
+    onnx_file_name = "output/image_gandecoder.onnx"
     torch_model = get_decoder()
     torch_model.eval()
-
-    onnx_file_name = "output/image_gandecoder.onnx"
     onnxruntime_engine = onnxruntime.InferenceSession(onnx_file_name)
 
     def to_numpy(tensor):
@@ -625,12 +702,33 @@ def verify_onnx():
     onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
     np.testing.assert_allclose(
         to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
-    print("Example: Onnx model has been tested with ONNXRuntime, the result looks good !")
+    print("Decoder onnx model has been tested with ONNXRuntime, the result sounds good !")
+
+
+    # ------- For Transformer -----------------------
+    onnx_file_name = "output/image_gantransformer.onnx"
+    torch_model = get_transformer()
+    torch_model.eval()
+    onnxruntime_engine = onnxruntime.InferenceSession(onnx_file_name)
+
+    def to_numpy(tensor):
+        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+    dummy_input = torch.randn(1, 512)
+    with torch.no_grad():
+        torch_output = torch_model(dummy_input)
+    onnxruntime_inputs = {
+        onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
+    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
+    np.testing.assert_allclose(
+        to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
+    print("Transformer onnx model has been tested with ONNXRuntime, the result sounds good !")
 
 
 def export_torch():
     """Export torch model."""
 
+    # ------- For Decoder -----------------------
     script_file = "output/image_gandecoder.pt"
 
     # 1. Load model
@@ -645,9 +743,58 @@ def export_torch():
         model, dummy_input, _force_outplace=True)
     traced_script_module.save(script_file)
 
+    # ------- For Transformer -----------------------
+    script_file = "output/image_gantransformer.pt"
+
+    # 1. Load model
+    model = get_transformer()
+    model.eval()
+
+    # 2. Model export
+    dummy_input = torch.randn(1, 512)
+    traced_script_module = torch.jit.trace(
+        model, dummy_input, _force_outplace=True)
+    traced_script_module.save(script_file)
+
+
+def sample(number, seed=-1):
+    '''Sample.'''
+    from model import model_setenv, model_device
+    import torchvision.utils as utils
+    from PIL import Image
+    import time
+
+    def grid_image(tensor, nrow=3):
+        grid = utils.make_grid(tensor, nrow=nrow)
+        ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(
+            1, 2, 0).to('cpu', torch.uint8).numpy()
+        image = Image.fromarray(ndarr)
+        return image
+
+    # Random must be set before model, it is realy strange !!! ...
+    zcode = torch.randn(number, 512)
+
+    model_setenv()
+    device = model_device()
+    decoder = get_decoder()
+    decoder = decoder.to(device)
+    decoder.eval()
+
+    print("Generating ...")
+    start_time = time.time()
+    zcode = zcode.to(device)
+    with torch.no_grad():
+        wcode = decoder.style(zcode)
+        image = decoder(wcode)
+    spend_time = time.time() - start_time
+    print("Spend time: {:.2f} seconds".format(spend_time))
+
+    nrow = int(math.sqrt(number) + 0.5) 
+    image = grid_image(image, nrow=nrow)
+    image.save("output/sample-9.png")
 
 if __name__ == '__main__':
-    """Onnx Tools ..."""
+    """Test Tools ..."""
     import argparse
     import os
 
@@ -656,6 +803,9 @@ if __name__ == '__main__':
         '--export', help="Export onnx model", action='store_true')
     parser.add_argument(
         '--verify', help="Verify onnx model", action='store_true')
+    parser.add_argument(
+        '--sample', help="Sample 9 faces", action='store_true')
+
     parser.add_argument('--output', type=str,
                         default="output", help="output folder")
 
@@ -664,10 +814,13 @@ if __name__ == '__main__':
     if not os.path.exists(args.output):
         os.makedirs(args.output)
 
-    export_torch()
+    # export_torch()
 
     if args.export:
         export_onnx()
 
     if args.verify:
         verify_onnx()
+
+    if args.sample:
+        sample(9)
