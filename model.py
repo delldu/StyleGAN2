@@ -551,9 +551,9 @@ class Generator(nn.Module):
         # [4, 8, 8, 16, 16, 32, 32, 64, 64, 128, 128, 256, 256, 512, 512, 1024, 1024]
         return noises
 
-    def mean_latent(self, n_latent):
+    def mean_latent(self, n):
         zcode = torch.randn(
-            n_latent, self.z_space_dim, device=self.input.input.device
+            n, self.z_space_dim, device=self.input.input.device
         )
         latent = self.style(zcode).mean(0, keepdim=True)
 
@@ -575,6 +575,9 @@ class Generator(nn.Module):
         # self.n_latent -- 18
         if wcode.ndim < 3:
             latent = wcode.unsqueeze(1).repeat(1, self.n_latent, 1)
+            # latent = wcode.unsqueeze(1).repeat(1, 14, 1)
+            # padding = latent[:, -1:, :].repeat(1, self.n_latent - 14, 1)
+            # latent = torch.cat([latent, padding], dim=1)
         else:
             latent = wcode
 
