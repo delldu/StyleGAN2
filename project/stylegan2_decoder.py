@@ -4,7 +4,11 @@ import pdb
 import torch
 from torch import nn
 from torch.nn import functional as F
+import onnxruntime
 
+import time
+import torchvision.utils as utils
+from PIL import Image
 
 def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
     out = upfirdn2d_native(
@@ -32,12 +36,12 @@ def upfirdn2d_native(
     )
 
     # xxxx8888
-    out = out[
-        :,
-        max(-pad_y0, 0): out.shape[1] - max(-pad_y1, 0),
-        max(-pad_x0, 0): out.shape[2] - max(-pad_x1, 0),
-        :,
-    ]
+    # out = out[
+    #     :,
+    #     max(-pad_y0, 0): out.shape[1] - max(-pad_y1, 0),
+    #     max(-pad_x0, 0): out.shape[2] - max(-pad_x1, 0),
+    #     :,
+    # ]
 
     out = out.permute(0, 3, 1, 2)
     out = out.reshape(
@@ -521,6 +525,7 @@ class Generator(nn.Module):
         i = 1
         # [::2] -- start 0, step 2, --> 0, 2, 4, 6, 8 ...
         # [1::2] -- start 1, step 2, --> 1, 3, 5, 7, 9 ...
+        # # https://github.com/prokotg/colorization/blob/master/colorizers/siggraph17.py
         for conv1, conv2, noise1, noise2, to_rgb in zip(
             self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
         ):
@@ -629,6 +634,18 @@ def export_onnx():
     input_names = ["input"]
     output_names = ["output"]
 
+    # dynamic_axes = {'input': {0: "batch"},
+    #                 'output': {0: "batch"}}
+
+    # torch.onnx.export(torch_model, dummy_input, onnx_file_name,
+    #                   input_names=input_names,
+    #                   output_names=output_names,
+    #                   verbose=True,
+    #                   opset_version=11,
+    #                   keep_initializers_as_inputs=False,
+    #                   export_params=True,
+    #                   dynamic_axes=dynamic_axes)
+
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                       input_names=input_names,
                       output_names=output_names,
@@ -661,6 +678,17 @@ def export_onnx():
     input_names = ["input"]
     output_names = ["output"]
 
+    # dynamic_axes = {'input': {0: "batch"},
+    #                 'output': {0: "batch"}}
+    # torch.onnx.export(torch_model, dummy_input, onnx_file_name,
+    #                   input_names=input_names,
+    #                   output_names=output_names,
+    #                   verbose=True,
+    #                   opset_version=11,
+    #                   keep_initializers_as_inputs=False,
+    #                   export_params=True,
+    #                   dynamic_axes=dynamic_axes)
+
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                       input_names=input_names,
                       output_names=output_names,
@@ -668,6 +696,7 @@ def export_onnx():
                       opset_version=11,
                       keep_initializers_as_inputs=False,
                       export_params=True)
+
 
     # 3. Optimize model
     print('Checking model ...')
@@ -677,7 +706,6 @@ def export_onnx():
 
     # 4. Visual model
     # python -c "import netron; netron.start('output/image_zoom.onnx')"
-
 
 def verify_onnx():
     """Verify onnx model."""
@@ -756,20 +784,16 @@ def export_torch():
         model, dummy_input, _force_outplace=True)
     traced_script_module.save(script_file)
 
+def grid_image(tensor, nrow=3):
+    grid = utils.make_grid(tensor, nrow=nrow)
+    ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(
+        1, 2, 0).to('cpu', torch.uint8).numpy()
+    image = Image.fromarray(ndarr)
+    return image
 
-def sample(number, seed=-1):
+def sample(number):
     '''Sample.'''
     from model import model_setenv, model_device
-    import torchvision.utils as utils
-    from PIL import Image
-    import time
-
-    def grid_image(tensor, nrow=3):
-        grid = utils.make_grid(tensor, nrow=nrow)
-        ndarr = grid.mul(255).add_(0.5).clamp_(0, 255).permute(
-            1, 2, 0).to('cpu', torch.uint8).numpy()
-        image = Image.fromarray(ndarr)
-        return image
 
     # Random must be set before model, it is realy strange !!! ...
     zcode = torch.randn(number, 512)
@@ -792,6 +816,38 @@ def sample(number, seed=-1):
     nrow = int(math.sqrt(number) + 0.5) 
     image = grid_image(image, nrow=nrow)
     image.save("output/sample-9.png")
+
+
+def onnx_model_load(onnx_file):
+    return onnxruntime.InferenceSession(onnx_file)
+
+def onnx_model_forward(onnx_model, input):
+    def to_numpy(tensor):
+        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+    onnxruntime_inputs = {onnx_model.get_inputs()[0].name: to_numpy(input)}
+    onnxruntime_outputs = onnx_model.run(None, onnxruntime_inputs)
+    return torch.from_numpy(onnxruntime_outputs[0])
+
+def onnx_sample(number):
+    decoder = onnx_model_load("output/image_gandecoder.onnx")
+    transformer = onnx_model_load("output/image_gantransformer.onnx")
+    device = "cpu"
+
+    zcode = torch.randn(number, 512)
+
+    print("Generating ...")
+    start_time = time.time()
+    wcode = onnx_model_forward(transformer, zcode)
+
+    image = onnx_model_forward(decoder, wcode)
+    spend_time = time.time() - start_time
+    print("Spend time: {:.2f} seconds".format(spend_time))
+
+    nrow = int(math.sqrt(number) + 0.5) 
+    image = grid_image(image, nrow=nrow)
+    image.save("output/sample-onnx-9.png")
+
 
 if __name__ == '__main__':
     """Test Tools ..."""
@@ -823,4 +879,5 @@ if __name__ == '__main__':
         verify_onnx()
 
     if args.sample:
-        sample(9)
+        # sample(9)
+        onnx_sample(1)
