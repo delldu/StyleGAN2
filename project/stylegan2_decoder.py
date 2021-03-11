@@ -259,6 +259,8 @@ class ModulatedConv2d(nn.Module):
             input = self.blur(input)
             height, width = input.shape[2], input.shape[3]
             input = input.view(1, batch * in_channel, height, width)
+            # TracerWarning: Converting a tensor to a Python integer might cause the trace 
+            # to be incorrect
             out = F.conv2d(input, weight, padding=0, stride=2, groups=batch)
             height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
@@ -269,7 +271,9 @@ class ModulatedConv2d(nn.Module):
             # weight.size() -- torch.Size([512, 512, 3, 3])
             # self.padding -- 1
             # batch -- tensor(1)
-            out = F.conv2d(input, weight, padding=self.padding, groups=batch)
+            # TracerWarning: Converting a tensor to a Python integer might cause the trace 
+            # to be incorrect
+            out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
             height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
 
@@ -307,7 +311,6 @@ class NoModulatedConv2d(nn.Module):
 
     def forward(self, input, style):
         batch, in_channel, height, width = input.shape[0], input.shape[1], input.shape[2], input.shape[3]
-
         style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
         weight = self.scale * self.weight * style
         weight = weight.view(
@@ -315,7 +318,8 @@ class NoModulatedConv2d(nn.Module):
         )
 
         input = input.view(1, batch * in_channel, height, width)
-        out = F.conv2d(input, weight, padding=self.padding, groups=batch)
+        # TracerWarning: Converting a tensor to a Python integer might cause the trace to be incorrect
+        out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
 
         height, width = out.shape[2], out.shape[3]
         out = out.view(batch, self.out_channel, height, width)
@@ -659,7 +663,7 @@ def export_onnx():
 
     # ------- For Decoder -----------------------
     onnx_file_name = "output/image_gandecoder.onnx"
-    dummy_input = torch.randn(9, 1, 1, 512)
+    dummy_input = torch.randn(1, 1, 1, 512)
 
     # 1. Create and load model.
     torch_model = get_decoder()
@@ -671,25 +675,13 @@ def export_onnx():
     input_names = ["input"]
     output_names = ["output"]
 
-    dynamic_axes = {'input': {0: "batch"},
-                    'output': {0: "batch"}}
-
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                       input_names=input_names,
                       output_names=output_names,
                       verbose=True,
                       opset_version=11,
                       keep_initializers_as_inputs=False,
-                      export_params=True,
-                      dynamic_axes=dynamic_axes)
-
-    # torch.onnx.export(torch_model, dummy_input, onnx_file_name,
-    #                   input_names=input_names,
-    #                   output_names=output_names,
-    #                   verbose=True,
-    #                   opset_version=11,
-    #                   keep_initializers_as_inputs=False,
-    #                   export_params=True)
+                      export_params=True)
 
     # 3. Optimize model
     print('Checking model ...')
@@ -703,7 +695,7 @@ def export_onnx():
 
     # ------- For Transformer -----------------------
     onnx_file_name = "output/image_gantransformer.onnx"
-    dummy_input = torch.randn(9, 1, 1, 512)
+    dummy_input = torch.randn(1, 1, 1, 512)
 
     # 1. Create and load model.
     torch_model = get_transformer()
@@ -715,24 +707,13 @@ def export_onnx():
     input_names = ["input"]
     output_names = ["output"]
 
-    dynamic_axes = {'input': {0: "batch"},
-                    'output': {0: "batch"}}
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                       input_names=input_names,
                       output_names=output_names,
                       verbose=True,
                       opset_version=11,
                       keep_initializers_as_inputs=False,
-                      export_params=True,
-                      dynamic_axes=dynamic_axes)
-
-    # torch.onnx.export(torch_model, dummy_input, onnx_file_name,
-    #                   input_names=input_names,
-    #                   output_names=output_names,
-    #                   verbose=True,
-    #                   opset_version=11,
-    #                   keep_initializers_as_inputs=False,
-    #                   export_params=True)
+                      export_params=True)
 
 
     # 3. Optimize model
@@ -749,26 +730,6 @@ def verify_onnx():
 
     import numpy as np
     import onnxruntime
-
-    # ------- For Decoder -----------------------
-    onnx_file_name = "output/image_gandecoder.onnx"
-    torch_model = get_decoder()
-    torch_model.eval()
-    onnxruntime_engine = onnxruntime.InferenceSession(onnx_file_name)
-
-    def to_numpy(tensor):
-        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
-
-    dummy_input = torch.randn(1, 1, 1, 512)
-    with torch.no_grad():
-        torch_output = torch_model(dummy_input)
-    onnxruntime_inputs = {
-        onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
-    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
-    np.testing.assert_allclose(
-        to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
-    print("Decoder onnx model has been tested with ONNXRuntime, the result sounds good !")
-
 
     # ------- For Transformer -----------------------
     onnx_file_name = "output/image_gantransformer.onnx"
@@ -788,6 +749,25 @@ def verify_onnx():
     np.testing.assert_allclose(
         to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
     print("Transformer onnx model has been tested with ONNXRuntime, the result sounds good !")
+
+    # ------- For Decoder -----------------------
+    onnx_file_name = "output/image_gandecoder.onnx"
+    torch_model = get_decoder()
+    torch_model.eval()
+    onnxruntime_engine = onnxruntime.InferenceSession(onnx_file_name)
+
+    def to_numpy(tensor):
+        return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+
+    dummy_input = torch.randn(1, 1, 1, 512)
+    with torch.no_grad():
+        torch_output = torch_model(dummy_input)
+    onnxruntime_inputs = {
+        onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
+    onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
+    np.testing.assert_allclose(
+        to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
+    print("Decoder onnx model has been tested with ONNXRuntime, the result sounds good !")
 
 
 def export_torch():
@@ -873,23 +853,23 @@ def onnx_model_forward(onnx_model, input):
 def onnx_sample(number):
     # Random must be set before torch model, it is realy strange !!! ...
 
-    zcode = torch.randn(number, 1, 1, 512)
-
     decoder = onnx_model_load("output/image_gandecoder.onnx")
     transformer = onnx_model_load("output/image_gantransformer.onnx")
     device = "cpu"
 
     print("Generating onnx samples ...")
     start_time = time.time()
-    wcode = onnx_model_forward(transformer, zcode)
 
-    image = onnx_model_forward(decoder, wcode)
+    for i in range(number):
+        zcode = torch.randn(1, 1, 1, 512)
+        wcode = onnx_model_forward(transformer, zcode)
+        image = onnx_model_forward(decoder, wcode)
+
+        image = grid_image(image, nrow=1)
+        image.save("output/sample-onnx-{}.png".format(i))
+
     spend_time = time.time() - start_time
     print("Spend time: {:.2f} seconds".format(spend_time))
-
-    nrow = int(math.sqrt(number) + 0.5) 
-    image = grid_image(image, nrow=nrow)
-    image.save("output/sample-onnx-9.png")
 
 
 if __name__ == '__main__':
@@ -922,5 +902,5 @@ if __name__ == '__main__':
         verify_onnx()
 
     if args.sample:
-        onnx_sample(9)
+        onnx_sample(8)
         torch_sample(9)
