@@ -346,11 +346,13 @@ class ConstantInput(nn.Module):
         super().__init__()
 
         self.input = nn.Parameter(torch.randn(1, channel, size, size))
+        # (Pdb) self.input.size()
+        # torch.Size([1, 512, 4, 4])
 
     def forward(self, input):
         batch = input.shape[0]
         out = self.input.repeat(batch, 1, 1, 1)
-
+        # out.size() -- torch.Size([9, 512, 4, 4])
         return out
 
 
@@ -418,8 +420,15 @@ class StyleGAN2Transformer(nn.Module):
         self.style = nn.Sequential(*layers)
 
     def forward(self, zcode):
-        '''Transform zcode to wcode.'''
-        return self.style(zcode)
+        '''Transform zcode to wcode. zcode format Bx1x1x512, return wcode: Bx1x1x512'''
+        zcode.squeeze_(1)
+        zcode.squeeze_(1)
+        # [9, 1, 1, 512] --> [9, 512]
+        wcode = self.style(zcode)
+        wcode.unsqueeze_(1)
+        wcode.unsqueeze_(1)
+
+        return wcode
 
 
 class Generator(nn.Module):
@@ -472,7 +481,6 @@ class Generator(nn.Module):
         self.to_rgb1 = ToRGB(self.channels[4], w_space_dim, upsample=False)
 
         self.convs = nn.ModuleList()
-        self.upsamples = nn.ModuleList()
         self.to_rgbs = nn.ModuleList()
         self.noises = nn.Module()
 
@@ -501,7 +509,6 @@ class Generator(nn.Module):
 
             in_channel = out_channel
 
-        self.last_latent = torch.zeros(1, self.num_latents, self.w_space_dim)
         self.eigvectors = torch.zeros(w_space_dim, w_space_dim)
 
     def forward(self, wcode, noise=None):
@@ -510,13 +517,11 @@ class Generator(nn.Module):
 
         # wcode = self.style(zcode)
         # self.num_latents -- 18
-        if wcode.ndim < 3:
-            latent = wcode.unsqueeze(1).repeat(1, self.num_latents, 1)
-        else:
-            latent = wcode
-
+        wcode.squeeze_(1)
+        latent = wcode.repeat(1, self.num_latents, 1)
         # (Pdb) latent.size()
         # torch.Size([1, 18, 512])
+
         out = self.input(latent)
         out = self.conv1(out, latent[:, 0], noise=noise[0])
 
@@ -535,7 +540,39 @@ class Generator(nn.Module):
 
             i += 2
 
-        self.last_latent = latent
+        # loop count 8 times
+        # i = 1, 3, 5, 7, 9, 11, 13, 15
+        # out = self.convs[0](out, latent[:, 1])
+        # out = self.convs[1](out, latent[:, 2])
+        # skip = self.to_rgbs[0](out, latent[:, 3], skip)
+
+        # out = self.convs[2](out, latent[:, 3])
+        # out = self.convs[3](out, latent[:, 4])
+        # skip = self.to_rgbs[1](out, latent[:, 5], skip)
+
+        # out = self.convs[4](out, latent[:, 5])
+        # out = self.convs[5](out, latent[:, 6])
+        # skip = self.to_rgbs[2](out, latent[:, 7], skip)
+
+        # out = self.convs[6](out, latent[:, 7])
+        # out = self.convs[7](out, latent[:, 8])
+        # skip = self.to_rgbs[3](out, latent[:, 9], skip)
+
+        # out = self.convs[8](out, latent[:, 9])
+        # out = self.convs[9](out, latent[:, 10])
+        # skip = self.to_rgbs[4](out, latent[:, 11], skip)
+
+        # out = self.convs[10](out, latent[:, 11])
+        # out = self.convs[11](out, latent[:, 12])
+        # skip = self.to_rgbs[5](out, latent[:, 13], skip)
+
+        # out = self.convs[12](out, latent[:, 13])
+        # out = self.convs[13](out, latent[:, 14])
+        # skip = self.to_rgbs[6](out, latent[:, 15], skip)
+
+        # out = self.convs[14](out, latent[:, 15])
+        # out = self.convs[15](out, latent[:, 16])
+        # skip = self.to_rgbs[7](out, latent[:, 17], skip)
 
         # image = skip
         '''Post image, from [-1.0, 1.0] to [0.0, 1.0].'''
@@ -622,7 +659,7 @@ def export_onnx():
 
     # ------- For Decoder -----------------------
     onnx_file_name = "output/image_gandecoder.onnx"
-    dummy_input = torch.randn(1, 512)
+    dummy_input = torch.randn(9, 1, 1, 512)
 
     # 1. Create and load model.
     torch_model = get_decoder()
@@ -634,17 +671,8 @@ def export_onnx():
     input_names = ["input"]
     output_names = ["output"]
 
-    # dynamic_axes = {'input': {0: "batch"},
-    #                 'output': {0: "batch"}}
-
-    # torch.onnx.export(torch_model, dummy_input, onnx_file_name,
-    #                   input_names=input_names,
-    #                   output_names=output_names,
-    #                   verbose=True,
-    #                   opset_version=11,
-    #                   keep_initializers_as_inputs=False,
-    #                   export_params=True,
-    #                   dynamic_axes=dynamic_axes)
+    dynamic_axes = {'input': {0: "batch"},
+                    'output': {0: "batch"}}
 
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                       input_names=input_names,
@@ -652,7 +680,16 @@ def export_onnx():
                       verbose=True,
                       opset_version=11,
                       keep_initializers_as_inputs=False,
-                      export_params=True)
+                      export_params=True,
+                      dynamic_axes=dynamic_axes)
+
+    # torch.onnx.export(torch_model, dummy_input, onnx_file_name,
+    #                   input_names=input_names,
+    #                   output_names=output_names,
+    #                   verbose=True,
+    #                   opset_version=11,
+    #                   keep_initializers_as_inputs=False,
+    #                   export_params=True)
 
     # 3. Optimize model
     print('Checking model ...')
@@ -666,7 +703,7 @@ def export_onnx():
 
     # ------- For Transformer -----------------------
     onnx_file_name = "output/image_gantransformer.onnx"
-    dummy_input = torch.randn(1, 512)
+    dummy_input = torch.randn(9, 1, 1, 512)
 
     # 1. Create and load model.
     torch_model = get_transformer()
@@ -678,24 +715,24 @@ def export_onnx():
     input_names = ["input"]
     output_names = ["output"]
 
-    # dynamic_axes = {'input': {0: "batch"},
-    #                 'output': {0: "batch"}}
-    # torch.onnx.export(torch_model, dummy_input, onnx_file_name,
-    #                   input_names=input_names,
-    #                   output_names=output_names,
-    #                   verbose=True,
-    #                   opset_version=11,
-    #                   keep_initializers_as_inputs=False,
-    #                   export_params=True,
-    #                   dynamic_axes=dynamic_axes)
-
+    dynamic_axes = {'input': {0: "batch"},
+                    'output': {0: "batch"}}
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                       input_names=input_names,
                       output_names=output_names,
                       verbose=True,
                       opset_version=11,
                       keep_initializers_as_inputs=False,
-                      export_params=True)
+                      export_params=True,
+                      dynamic_axes=dynamic_axes)
+
+    # torch.onnx.export(torch_model, dummy_input, onnx_file_name,
+    #                   input_names=input_names,
+    #                   output_names=output_names,
+    #                   verbose=True,
+    #                   opset_version=11,
+    #                   keep_initializers_as_inputs=False,
+    #                   export_params=True)
 
 
     # 3. Optimize model
@@ -722,7 +759,7 @@ def verify_onnx():
     def to_numpy(tensor):
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
-    dummy_input = torch.randn(1, 512)
+    dummy_input = torch.randn(1, 1, 1, 512)
     with torch.no_grad():
         torch_output = torch_model(dummy_input)
     onnxruntime_inputs = {
@@ -742,7 +779,7 @@ def verify_onnx():
     def to_numpy(tensor):
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
-    dummy_input = torch.randn(1, 512)
+    dummy_input = torch.randn(1, 1, 1, 512)
     with torch.no_grad():
         torch_output = torch_model(dummy_input)
     onnxruntime_inputs = {
@@ -791,12 +828,12 @@ def grid_image(tensor, nrow=3):
     image = Image.fromarray(ndarr)
     return image
 
-def sample(number):
+def torch_sample(number):
     '''Sample.'''
     from model import model_setenv, model_device
 
     # Random must be set before model, it is realy strange !!! ...
-    zcode = torch.randn(number, 512)
+    zcode = torch.randn(number, 1, 1, 512)
 
     model_setenv()
     device = model_device()
@@ -804,11 +841,15 @@ def sample(number):
     decoder = decoder.to(device)
     decoder.eval()
 
-    print("Generating ...")
+    transformer = get_transformer()
+    transformer = transformer.to(device)
+    transformer.eval()
+
+    print("Generating torch samples ...")
     start_time = time.time()
     zcode = zcode.to(device)
     with torch.no_grad():
-        wcode = decoder.style(zcode)
+        wcode = transformer(zcode)
         image = decoder(wcode)
     spend_time = time.time() - start_time
     print("Spend time: {:.2f} seconds".format(spend_time))
@@ -830,13 +871,15 @@ def onnx_model_forward(onnx_model, input):
     return torch.from_numpy(onnxruntime_outputs[0])
 
 def onnx_sample(number):
+    # Random must be set before torch model, it is realy strange !!! ...
+
+    zcode = torch.randn(number, 1, 1, 512)
+
     decoder = onnx_model_load("output/image_gandecoder.onnx")
     transformer = onnx_model_load("output/image_gantransformer.onnx")
     device = "cpu"
 
-    zcode = torch.randn(number, 512)
-
-    print("Generating ...")
+    print("Generating onnx samples ...")
     start_time = time.time()
     wcode = onnx_model_forward(transformer, zcode)
 
@@ -879,5 +922,5 @@ if __name__ == '__main__':
         verify_onnx()
 
     if args.sample:
-        # sample(9)
-        onnx_sample(1)
+        onnx_sample(9)
+        torch_sample(9)

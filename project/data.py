@@ -73,7 +73,7 @@ def sample_label(seed=-1):
         random_seed = seed
     torch.manual_seed(random_seed)
 
-    return torch.randn(1, 512)
+    return torch.randn(1, 1, 1, 512)
 
 
 def create_database(dbname, total):
