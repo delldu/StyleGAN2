@@ -384,7 +384,8 @@ class ModulatedConv2dWithoutNormWeight(nn.Module):
         input = input.view(1, batch * in_channel, height, width)
         # TracerWarning: Converting a tensor to a Python integer might cause the trace to be incorrect
         out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
-        print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
+        print("------------------------------------------------------------------")
+        # print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
         # torch.Size([1, 4608, 8, 8]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 8, 8])
         # torch.Size([1, 4608, 16, 16]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 16, 16])
         # torch.Size([1, 4608, 32, 32]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 32, 32])
@@ -976,8 +977,8 @@ if __name__ == '__main__':
 
 
     if args.export:
-        # export_torch()
-        export_onnx()
+        export_torch()
+        # export_onnx()
 
     if args.verify:
         verify_onnx()
