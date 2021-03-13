@@ -9,17 +9,40 @@ import onnxruntime
 import time
 import torchvision.utils as utils
 from PIL import Image
+import torchvision.transforms as transforms
 
 def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
+    '''scipy.signal.upfirdn ?'''
     out = upfirdn2d_native(
         input, kernel, up, up, down, down, pad[0], pad[1], pad[0], pad[1]
     )
+    print("upfidn2d:  up = {}".format(up))
+    print("upfirdn2d {} --{}--> {}".format(input.size(), kernel.size(), out.size()))
+    # upfirdn2d torch.Size([9, 512, 9, 9]) --torch.Size([4, 4])--> torch.Size([9, 512, 8, 8])
+    # upfirdn2d torch.Size([9, 3, 4, 4]) --torch.Size([4, 4])--> torch.Size([9, 3, 8, 8])
+    # upfirdn2d torch.Size([9, 512, 17, 17]) --torch.Size([4, 4])--> torch.Size([9, 512, 16, 16])
+    # upfirdn2d torch.Size([9, 3, 8, 8]) --torch.Size([4, 4])--> torch.Size([9, 3, 16, 16])
+    # upfirdn2d torch.Size([9, 512, 33, 33]) --torch.Size([4, 4])--> torch.Size([9, 512, 32, 32])
+    # upfirdn2d torch.Size([9, 3, 16, 16]) --torch.Size([4, 4])--> torch.Size([9, 3, 32, 32])
+    # upfirdn2d torch.Size([9, 512, 65, 65]) --torch.Size([4, 4])--> torch.Size([9, 512, 64, 64])
+    # upfirdn2d torch.Size([9, 3, 32, 32]) --torch.Size([4, 4])--> torch.Size([9, 3, 64, 64])
+    # upfirdn2d torch.Size([9, 256, 129, 129]) --torch.Size([4, 4])--> torch.Size([9, 256, 128, 128])
+    # upfirdn2d torch.Size([9, 3, 64, 64]) --torch.Size([4, 4])--> torch.Size([9, 3, 128, 128])
+    # upfirdn2d torch.Size([9, 128, 257, 257]) --torch.Size([4, 4])--> torch.Size([9, 128, 256, 256])
+    # upfirdn2d torch.Size([9, 3, 128, 128]) --torch.Size([4, 4])--> torch.Size([9, 3, 256, 256])
+    # upfirdn2d torch.Size([9, 64, 513, 513]) --torch.Size([4, 4])--> torch.Size([9, 64, 512, 512])
+    # upfirdn2d torch.Size([9, 3, 256, 256]) --torch.Size([4, 4])--> torch.Size([9, 3, 512, 512])
+    # upfirdn2d torch.Size([9, 32, 1025, 1025]) --torch.Size([4, 4])--> torch.Size([9, 32, 1024, 1024])
+    # upfirdn2d torch.Size([9, 3, 512, 512]) --torch.Size([4, 4])--> torch.Size([9, 3, 1024, 1024])
+
     return out
 
 
 def upfirdn2d_native(
     input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
 ):
+    # up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1 -- (1, 1, 1, 1, 1, 1, 1, 1)
+
     _, channel, in_h, in_w = input.shape
     input = input.reshape(-1, in_h, in_w, 1)
 
@@ -28,12 +51,15 @@ def upfirdn2d_native(
 
     out = input.view(-1, in_h, 1, in_w, 1, minor)
     out = F.pad(out, [0, 0, 0, up_x - 1, 0, 0, 0, up_y - 1])
+    # pdb.set_trace(), [0, 0, 0, 0, 0, 0, 0, 0]
+    # out.size() -- torch.Size([4608, 9, 1, 9, 1, 1])
     out = out.view(-1, in_h * up_y, in_w * up_x, minor)
+    # in_h * up_y, in_w * up_x, minor -- (4608, 9, 9, 1)
 
     out = F.pad(
-        out, [0, 0, max(pad_x0, 0), max(pad_x1, 0),
-              max(pad_y0, 0), max(pad_y1, 0)]
+        out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)]
     )
+    # [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)] -- [0, 0, 1, 1, 1, 1]
 
     # xxxx8888
     # out = out[
@@ -43,23 +69,29 @@ def upfirdn2d_native(
     #     :,
     # ]
 
+    # torch.Size([4608, 11, 11, 1])
     out = out.permute(0, 3, 1, 2)
     out = out.reshape(
         [-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1]
     )
+    # [-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1] -- [-1, 1, 11, 11]
     w = torch.flip(kernel, [0, 1]).view(1, 1, kernel_h, kernel_w)
+    # (Pdb) out.size(), w.size() -- (torch.Size([4608, 1, 11, 11]), torch.Size([1, 1, 4, 4]))
+
     out = F.conv2d(out, w)
     out = out.reshape(
         -1,
         minor,
-        in_h * up_y + pad_y0 + pad_y1 - kernel_h + 1,
-        in_w * up_x + pad_x0 + pad_x1 - kernel_w + 1,
+        in_h * up_y + pad_y0 + pad_y1 - kernel_h + 1, # 8, 
+        in_w * up_x + pad_x0 + pad_x1 - kernel_w + 1, # 8
     )
+    # out.size() -- torch.Size([4608, 1, 8, 8])
     out = out.permute(0, 2, 3, 1)
-    out = out[:, ::down_y, ::down_x, :]
+    # xxxx8888
+    # out = out[:, ::down_y, ::down_x, :]
 
-    out_h = (in_h * up_y + pad_y0 + pad_y1 - kernel_h) // down_y + 1
-    out_w = (in_w * up_x + pad_x0 + pad_x1 - kernel_w) // down_x + 1
+    out_h = (in_h * up_y + pad_y0 + pad_y1 - kernel_h) // down_y + 1 # 8 
+    out_w = (in_w * up_x + pad_x0 + pad_x1 - kernel_w) // down_x + 1 # 8
 
     return out.view(-1, channel, out_h, out_w)
 
@@ -78,6 +110,11 @@ class FusedLeakyReLU(nn.Module):
 
 def fused_leaky_relu(input, bias, negative_slope=0.2, scale=2 ** 0.5):
     rest_dim = [1] * (input.ndim - bias.ndim - 1)
+    # pdb.set_trace()
+    # input.size() -- torch.Size([9, 512]), input.ndim = 2
+    # bias.ndim == 1
+    print("rest_dim =", rest_dim)
+    # xxxx8888
     return F.leaky_relu(input + bias.view(1, bias.shape[0], *rest_dim), negative_slope=0.2) * scale
 
 
@@ -99,7 +136,6 @@ def make_kernel(k):
 
     return k
 
-
 class Upsample(nn.Module):
     def __init__(self, kernel, factor=2):
         super().__init__()
@@ -116,8 +152,11 @@ class Upsample(nn.Module):
         self.pad = (pad0, pad1)
 
     def forward(self, input):
-        out = upfirdn2d(input, self.kernel, up=self.factor,
-                        down=1, pad=self.pad)
+        # xxxx8888
+        print("Upsample: self.factor = {}".format(self.factor))
+        #
+        out = upfirdn2d(input, self.kernel, up=self.factor, down=1, pad=self.pad)
+        # upfirdn2d torch.Size([9, 3, 4, 4]) --torch.Size([4, 4])--> torch.Size([9, 3, 8, 8])
 
         return out
 
@@ -136,37 +175,50 @@ class Blur(nn.Module):
         self.pad = pad
 
     def forward(self, input):
-        out = upfirdn2d(input, self.kernel, pad=self.pad)
-
+        # xxxx8888
+        print("Blur: self.pad = {}".format(self.pad))
+        # xxxx8888
+        # out = upfirdn2d(input, self.kernel, pad=self.pad)
+        b, c, h, w = input.shape
+        input = input.view(b * c, 1, h, w)
+        weight = self.kernel.view(1, 1, 4, 4)
+        out = F.conv2d(input, weight, padding = self.pad)
+        h, w = out.shape[2], out.shape[3]
+        out = out.view(b, c, h, w)
         return out
 
 
 class EqualLinear(nn.Module):
-    def __init__(
-        self, in_dim, out_dim, bias=True, bias_init=0, lr_mul=1, activation=None
-    ):
+    def __init__(self, in_dim, out_dim, bias_init=0, lr_mul=1):
         super().__init__()
 
         self.weight = nn.Parameter(torch.randn(out_dim, in_dim).div_(lr_mul))
-
-        if bias:
-            self.bias = nn.Parameter(torch.zeros(out_dim).fill_(bias_init))
-        else:
-            self.bias = None
-
-        self.activation = activation
-
+        self.bias = nn.Parameter(torch.zeros(out_dim).fill_(bias_init))
         self.scale = (1 / math.sqrt(in_dim)) * lr_mul
         self.lr_mul = lr_mul
 
     def forward(self, input):
-        if self.activation:
-            out = F.linear(input, self.weight * self.scale)
-            out = fused_leaky_relu(out, self.bias * self.lr_mul)
-        else:
-            out = F.linear(
-                input, self.weight * self.scale, bias=self.bias * self.lr_mul
-            )
+        out = F.linear(input, self.weight * self.scale, bias=self.bias * self.lr_mul)
+        return out
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]})"
+        )
+
+class EqualLinearWithLeakyRelu(nn.Module):
+    '''Add this class for onnx -- data driven flow is difficult tracing.'''
+    def __init__(self, in_dim, out_dim, bias_init=0, lr_mul=1):
+        super().__init__()
+
+        self.weight = nn.Parameter(torch.randn(out_dim, in_dim).div_(lr_mul))
+        self.bias = nn.Parameter(torch.zeros(out_dim).fill_(bias_init))
+        self.scale = (1 / math.sqrt(in_dim)) * lr_mul
+        self.lr_mul = lr_mul
+
+    def forward(self, input):
+        out = F.linear(input, self.weight * self.scale)
+        out = fused_leaky_relu(out, self.bias * self.lr_mul)
 
         return out
 
@@ -184,7 +236,6 @@ class ModulatedConv2d(nn.Module):
         kernel_size,
         w_space_dim,
         upsample=False,
-        downsample=False,
         blur_kernel=[1, 3, 3, 1],
     ):
         super().__init__()
@@ -193,24 +244,15 @@ class ModulatedConv2d(nn.Module):
         self.in_channel = in_channel
         self.out_channel = out_channel
         self.upsample = upsample
-        self.downsample = downsample
 
         if upsample:
             factor = 2
             p = (len(blur_kernel) - factor) - (kernel_size - 1)
             pad0 = (p + 1) // 2 + factor - 1
             pad1 = p // 2 + 1
-
+            # xxxx8888
             self.blur = Blur(blur_kernel, pad=(
                 pad0, pad1), upsample_factor=factor)
-
-        if downsample:
-            factor = 2
-            p = (len(blur_kernel) - factor) + (kernel_size - 1)
-            pad0 = (p + 1) // 2
-            pad1 = p // 2
-
-            self.blur = Blur(blur_kernel, pad=(pad0, pad1))
 
         fan_in = in_channel * kernel_size ** 2
         self.scale = 1 / math.sqrt(fan_in)
@@ -234,6 +276,13 @@ class ModulatedConv2d(nn.Module):
         style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
         weight = self.scale * self.weight * style
 
+
+        # xxxx8888
+        # if self.demodulate:
+        #     demod = torch.rsqrt(weight.pow(2).sum([2, 3, 4]) + 1e-8)
+        #     weight = weight * demod.view(batch, self.out_channel, 1, 1, 1)
+
+        # Norm weight !!!
         demod = torch.rsqrt(weight.pow(2).sum([2, 3, 4]) + 1e-8)
         weight = weight * demod.view(batch, self.out_channel, 1, 1, 1)
 
@@ -253,17 +302,17 @@ class ModulatedConv2d(nn.Module):
                 input, weight, padding=0, stride=2, groups=batch)
             height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
+            # xxxx8888
             out = self.blur(out)
-
-        elif self.downsample:
-            input = self.blur(input)
-            height, width = input.shape[2], input.shape[3]
-            input = input.view(1, batch * in_channel, height, width)
-            # TracerWarning: Converting a tensor to a Python integer might cause the trace 
-            # to be incorrect
-            out = F.conv2d(input, weight, padding=0, stride=2, groups=batch)
-            height, width = out.shape[2], out.shape[3]
-            out = out.view(batch, self.out_channel, height, width)
+            print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
+            # torch.Size([1, 4608, 4, 4]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 8, 8])
+            # torch.Size([1, 4608, 8, 8]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 16, 16])
+            # torch.Size([1, 4608, 16, 16]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 32, 32])
+            # torch.Size([1, 4608, 32, 32]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 64, 64])
+            # torch.Size([1, 4608, 64, 64]) -- torch.Size([4608, 256, 3, 3]) --> torch.Size([9, 256, 128, 128])
+            # torch.Size([1, 2304, 128, 128]) -- torch.Size([2304, 128, 3, 3]) --> torch.Size([9, 128, 256, 256])
+            # torch.Size([1, 1152, 256, 256]) -- torch.Size([1152, 64, 3, 3]) --> torch.Size([9, 64, 512, 512])
+            # torch.Size([1, 576, 512, 512]) -- torch.Size([576, 32, 3, 3]) --> torch.Size([9, 32, 1024, 1024])
 
         else:
             input = input.view(1, batch * in_channel, height, width)
@@ -274,19 +323,30 @@ class ModulatedConv2d(nn.Module):
             # TracerWarning: Converting a tensor to a Python integer might cause the trace 
             # to be incorrect
             out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
+            print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
+            # torch.Size([1, 4608, 4, 4]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 4, 4])
+            # torch.Size([1, 4608, 8, 8]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 8, 8])
+            # torch.Size([1, 4608, 16, 16]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 16, 16])
+            # torch.Size([1, 4608, 32, 32]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 32, 32])
+            # torch.Size([1, 4608, 64, 64]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 64, 64])
+            # torch.Size([1, 2304, 128, 128]) -- torch.Size([2304, 256, 3, 3]) --> torch.Size([1, 2304, 128, 128])
+            # torch.Size([1, 1152, 256, 256]) -- torch.Size([1152, 128, 3, 3]) --> torch.Size([1, 1152, 256, 256])
+            # torch.Size([1, 576, 512, 512]) -- torch.Size([576, 64, 3, 3]) --> torch.Size([1, 576, 512, 512])
+            # torch.Size([1, 288, 1024, 1024]) -- torch.Size([288, 32, 3, 3]) --> torch.Size([1, 288, 1024, 1024])
+
             height, width = out.shape[2], out.shape[3]
             out = out.view(batch, self.out_channel, height, width)
 
         return out
 
 
-class NoModulatedConv2d(nn.Module):
+class ModulatedConv2dWithoutNormWeight(nn.Module):
     def __init__(
         self,
-        in_channel,
-        out_channel,
-        kernel_size,
-        w_space_dim
+        in_channel = 3,
+        out_channel = 1,
+        kernel_size = 1,
+        w_space_dim = 512
     ):
         super().__init__()
 
@@ -313,13 +373,26 @@ class NoModulatedConv2d(nn.Module):
         batch, in_channel, height, width = input.shape[0], input.shape[1], input.shape[2], input.shape[3]
         style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
         weight = self.scale * self.weight * style
+        # (Pdb) self.weight.size(), style.size()
+        # (torch.Size([1, 3, 512, 1, 1]), torch.Size([9, 1, 512, 1, 1]))
+
         weight = weight.view(
             batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size
         )
+        # batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size -- (27, 512, 1, 1)
 
         input = input.view(1, batch * in_channel, height, width)
         # TracerWarning: Converting a tensor to a Python integer might cause the trace to be incorrect
         out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
+        print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
+        # torch.Size([1, 4608, 8, 8]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 8, 8])
+        # torch.Size([1, 4608, 16, 16]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 16, 16])
+        # torch.Size([1, 4608, 32, 32]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 32, 32])
+        # torch.Size([1, 4608, 64, 64]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 64, 64])
+        # torch.Size([1, 2304, 128, 128]) -- torch.Size([27, 256, 1, 1]) --> torch.Size([1, 27, 128, 128])
+        # torch.Size([1, 1152, 256, 256]) -- torch.Size([27, 128, 1, 1]) --> torch.Size([1, 27, 256, 256])
+        # torch.Size([1, 576, 512, 512]) -- torch.Size([27, 64, 1, 1]) --> torch.Size([1, 27, 512, 512])
+        # torch.Size([1, 288, 1024, 1024]) -- torch.Size([27, 32, 1, 1]) --> torch.Size([1, 27, 1024, 1024])
 
         height, width = out.shape[2], out.shape[3]
         out = out.view(batch, self.out_channel, height, width)
@@ -342,6 +415,9 @@ class NoiseInjection(nn.Module):
             mu = noise.mean()
             var = noise.std()
             noise = (noise - mu)/(var + 1e-6)
+        # xxxx8888
+        noise = torch.zeros_like(image)
+
         return image + self.weight * noise
 
 
@@ -389,25 +465,34 @@ class StyledConv(nn.Module):
 
 
 class ToRGB(nn.Module):
-    def __init__(self, in_channel, w_space_dim, upsample=True, blur_kernel=[1, 3, 3, 1]):
+    ''' to_rgbs ...'''
+    #xxxx8888
+    def __init__(self, in_channel, w_space_dim):
         super().__init__()
 
-        if upsample:
-            self.upsample = Upsample(blur_kernel)
-
-        self.conv = NoModulatedConv2d(in_channel, 3, 1, w_space_dim)
+        self.conv = ModulatedConv2dWithoutNormWeight(in_channel, out_channel=3, kernel_size=1, w_space_dim=w_space_dim)
         self.bias = nn.Parameter(torch.zeros(1, 3, 1, 1))
 
     def forward(self, input, style, skip=None):
-        out = self.conv(input, style)
-        out = out + self.bias
+        return self.conv(input, style) + self.bias
 
-        if skip is not None:
-            skip = self.upsample(skip)
 
-            out = out + skip
+class ToRGBWithUpsample(nn.Module):
+    ''' to_rgbs ...'''
+    #xxxx8888
+    def __init__(self, in_channel, w_space_dim):
+        super().__init__()
 
-        return out
+        self.upsample = Upsample([1, 3, 3, 1])
+        self.nn_upsample = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=True)
+
+        self.conv = ModulatedConv2dWithoutNormWeight(in_channel, out_channel=3, kernel_size=1, w_space_dim=w_space_dim)
+        self.bias = nn.Parameter(torch.zeros(1, 3, 1, 1))
+
+    def forward(self, input, style, skip):
+        out = self.conv(input, style) + self.bias
+        skip = self.nn_upsample(skip)
+        return out + skip
 
 
 class StyleGAN2Transformer(nn.Module):
@@ -418,19 +503,18 @@ class StyleGAN2Transformer(nn.Module):
         for i in range(n_mlp):
             # bias=True, bias_init=0, lr_mul=1, activation=None
             layers.append(
-                EqualLinear(w_space_dim, w_space_dim, lr_mul=lr_mlp, activation="fused_lrelu")
+                EqualLinearWithLeakyRelu(w_space_dim, w_space_dim, lr_mul=lr_mlp)
             )
 
         self.style = nn.Sequential(*layers)
 
     def forward(self, zcode):
         '''Transform zcode to wcode. zcode format Bx1x1x512, return wcode: Bx1x1x512'''
-        zcode.squeeze_(1)
-        zcode.squeeze_(1)
+        simple_zcode = zcode.squeeze(1).squeeze(1)
         # [9, 1, 1, 512] --> [9, 512]
-        wcode = self.style(zcode)
-        wcode.unsqueeze_(1)
-        wcode.unsqueeze_(1)
+        simple_wcode = self.style(simple_zcode)
+
+        wcode = simple_wcode.unsqueeze(1).unsqueeze(1)
 
         return wcode
 
@@ -457,14 +541,6 @@ class Generator(nn.Module):
         self.num_layers = (self.log_size - 2) * 2 + 1
         self.num_latents = self.log_size * 2 - 2
 
-        # layers = [PixelNorm()]
-        # for i in range(n_mlp):
-        #     # bias=True, bias_init=0, lr_mul=1, activation=None
-        #     layers.append(
-        #         EqualLinear(w_space_dim, w_space_dim,
-        #                     lr_mul=lr_mlp, activation="fused_lrelu")
-        #     )
-        # self.style = nn.Sequential(*layers)
         self.style = StyleGAN2Transformer(w_space_dim, n_mlp, lr_mlp).style
 
         self.channels = {
@@ -482,7 +558,7 @@ class Generator(nn.Module):
         self.input = ConstantInput(self.channels[4])
         self.conv1 = StyledConv(
             self.channels[4], self.channels[4], 3, w_space_dim, blur_kernel=blur_kernel)
-        self.to_rgb1 = ToRGB(self.channels[4], w_space_dim, upsample=False)
+        self.to_rgb1 = ToRGB(self.channels[4], w_space_dim)
 
         self.convs = nn.ModuleList()
         self.to_rgbs = nn.ModuleList()
@@ -509,7 +585,7 @@ class Generator(nn.Module):
                            w_space_dim, blur_kernel=blur_kernel)
             )
 
-            self.to_rgbs.append(ToRGB(out_channel, w_space_dim))
+            self.to_rgbs.append(ToRGBWithUpsample(out_channel, w_space_dim))
 
             in_channel = out_channel
 
@@ -521,10 +597,9 @@ class Generator(nn.Module):
 
         # wcode = self.style(zcode)
         # self.num_latents -- 18
-        wcode.squeeze_(1)
-        latent = wcode.repeat(1, self.num_latents, 1)
-        # (Pdb) latent.size()
-        # torch.Size([1, 18, 512])
+
+        latent = wcode.squeeze(1).repeat(1, self.num_latents, 1)
+        # (Pdb) latent.size() -- torch.Size([1, 18, 512])
 
         out = self.input(latent)
         out = self.conv1(out, latent[:, 0], noise=noise[0])
@@ -535,48 +610,48 @@ class Generator(nn.Module):
         # [::2] -- start 0, step 2, --> 0, 2, 4, 6, 8 ...
         # [1::2] -- start 1, step 2, --> 1, 3, 5, 7, 9 ...
         # # https://github.com/prokotg/colorization/blob/master/colorizers/siggraph17.py
-        for conv1, conv2, noise1, noise2, to_rgb in zip(
-            self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
-        ):
-            out = conv1(out, latent[:, i], noise=noise1)
-            out = conv2(out, latent[:, i + 1], noise=noise2)
-            skip = to_rgb(out, latent[:, i + 2], skip)
+        # for conv1, conv2, noise1, noise2, to_rgb in zip(
+        #     self.convs[::2], self.convs[1::2], noise[1::2], noise[2::2], self.to_rgbs
+        # ):
+        #     out = conv1(out, latent[:, i], noise=noise1)
+        #     out = conv2(out, latent[:, i + 1], noise=noise2)
+        #     skip = to_rgb(out, latent[:, i + 2], skip)
 
-            i += 2
+        #     i += 2
 
         # loop count 8 times
         # i = 1, 3, 5, 7, 9, 11, 13, 15
-        # out = self.convs[0](out, latent[:, 1])
-        # out = self.convs[1](out, latent[:, 2])
-        # skip = self.to_rgbs[0](out, latent[:, 3], skip)
+        out = self.convs[0](out, latent[:, 1])
+        out = self.convs[1](out, latent[:, 2])
+        skip = self.to_rgbs[0](out, latent[:, 3], skip)
 
-        # out = self.convs[2](out, latent[:, 3])
-        # out = self.convs[3](out, latent[:, 4])
-        # skip = self.to_rgbs[1](out, latent[:, 5], skip)
+        out = self.convs[2](out, latent[:, 3])
+        out = self.convs[3](out, latent[:, 4])
+        skip = self.to_rgbs[1](out, latent[:, 5], skip)
 
-        # out = self.convs[4](out, latent[:, 5])
-        # out = self.convs[5](out, latent[:, 6])
-        # skip = self.to_rgbs[2](out, latent[:, 7], skip)
+        out = self.convs[4](out, latent[:, 5])
+        out = self.convs[5](out, latent[:, 6])
+        skip = self.to_rgbs[2](out, latent[:, 7], skip)
 
-        # out = self.convs[6](out, latent[:, 7])
-        # out = self.convs[7](out, latent[:, 8])
-        # skip = self.to_rgbs[3](out, latent[:, 9], skip)
+        out = self.convs[6](out, latent[:, 7])
+        out = self.convs[7](out, latent[:, 8])
+        skip = self.to_rgbs[3](out, latent[:, 9], skip)
 
-        # out = self.convs[8](out, latent[:, 9])
-        # out = self.convs[9](out, latent[:, 10])
-        # skip = self.to_rgbs[4](out, latent[:, 11], skip)
+        out = self.convs[8](out, latent[:, 9])
+        out = self.convs[9](out, latent[:, 10])
+        skip = self.to_rgbs[4](out, latent[:, 11], skip)
 
-        # out = self.convs[10](out, latent[:, 11])
-        # out = self.convs[11](out, latent[:, 12])
-        # skip = self.to_rgbs[5](out, latent[:, 13], skip)
+        out = self.convs[10](out, latent[:, 11])
+        out = self.convs[11](out, latent[:, 12])
+        skip = self.to_rgbs[5](out, latent[:, 13], skip)
 
-        # out = self.convs[12](out, latent[:, 13])
-        # out = self.convs[13](out, latent[:, 14])
-        # skip = self.to_rgbs[6](out, latent[:, 15], skip)
+        out = self.convs[12](out, latent[:, 13])
+        out = self.convs[13](out, latent[:, 14])
+        skip = self.to_rgbs[6](out, latent[:, 15], skip)
 
-        # out = self.convs[14](out, latent[:, 15])
-        # out = self.convs[15](out, latent[:, 16])
-        # skip = self.to_rgbs[7](out, latent[:, 17], skip)
+        out = self.convs[14](out, latent[:, 15])
+        out = self.convs[15](out, latent[:, 16])
+        skip = self.to_rgbs[7](out, latent[:, 17], skip)
 
         # image = skip
         '''Post image, from [-1.0, 1.0] to [0.0, 1.0].'''
@@ -743,8 +818,10 @@ def verify_onnx():
     dummy_input = torch.randn(1, 1, 1, 512)
     with torch.no_grad():
         torch_output = torch_model(dummy_input)
+
     onnxruntime_inputs = {
         onnxruntime_engine.get_inputs()[0].name: to_numpy(dummy_input)}
+
     onnxruntime_outputs = onnxruntime_engine.run(None, onnxruntime_inputs)
     np.testing.assert_allclose(
         to_numpy(torch_output), onnxruntime_outputs[0], rtol=1e-02, atol=1e-02)
@@ -773,6 +850,23 @@ def verify_onnx():
 def export_torch():
     """Export torch model."""
 
+    print("================> Torch Script Tansformer ...")
+    # ------- For Transformer -----------------------
+    script_file = "output/image_gantransformer.pt"
+
+    # 1. Load model
+    model = get_transformer()
+    model.eval()
+
+    # 2. Model export
+    dummy_input = torch.randn(1, 1, 1, 512)
+    traced_script_module = torch.jit.trace(
+        model, dummy_input, _force_outplace=True)
+    traced_script_module.save(script_file)
+
+
+    print("================> Torch Script Decoder ...")
+
     # ------- For Decoder -----------------------
     script_file = "output/image_gandecoder.pt"
 
@@ -783,23 +877,11 @@ def export_torch():
 
     # 2. Model export
     print("Export model ...")
-    dummy_input = torch.randn(1, 512)
+    dummy_input = torch.randn(1, 1, 1, 512)
     traced_script_module = torch.jit.trace(
         model, dummy_input, _force_outplace=True)
     traced_script_module.save(script_file)
 
-    # ------- For Transformer -----------------------
-    script_file = "output/image_gantransformer.pt"
-
-    # 1. Load model
-    model = get_transformer()
-    model.eval()
-
-    # 2. Model export
-    dummy_input = torch.randn(1, 512)
-    traced_script_module = torch.jit.trace(
-        model, dummy_input, _force_outplace=True)
-    traced_script_module.save(script_file)
 
 def grid_image(tensor, nrow=3):
     grid = utils.make_grid(tensor, nrow=nrow)
@@ -859,14 +941,13 @@ def onnx_sample(number):
 
     print("Generating onnx samples ...")
     start_time = time.time()
+    toimage = transforms.ToPILImage()
 
     for i in range(number):
         zcode = torch.randn(1, 1, 1, 512)
         wcode = onnx_model_forward(transformer, zcode)
         image = onnx_model_forward(decoder, wcode)
-
-        image = grid_image(image, nrow=1)
-        image.save("output/sample-onnx-{}.png".format(i))
+        toimage(image.squeeze(0)).save("output/sample-onnx-{}.png".format(i))
 
     spend_time = time.time() - start_time
     print("Spend time: {:.2f} seconds".format(spend_time))
@@ -893,14 +974,14 @@ if __name__ == '__main__':
     if not os.path.exists(args.output):
         os.makedirs(args.output)
 
-    # export_torch()
 
     if args.export:
+        # export_torch()
         export_onnx()
 
     if args.verify:
         verify_onnx()
 
     if args.sample:
-        onnx_sample(8)
+        # onnx_sample(9)
         torch_sample(9)
