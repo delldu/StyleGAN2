@@ -392,12 +392,19 @@ class StyleGAN2Transformer(nn.Module):
             )
 
         self.style = nn.Sequential(*layers)
+        self.w_space_dim = w_space_dim
 
     def forward(self, zcode):
         '''Transform zcode to wcode. zcode format Bx1x1x512, return wcode: Bx1x1x512'''
         simple_zcode = zcode.squeeze(1).squeeze(1)
         # [9, 1, 1, 512] --> [9, 512]
         simple_wcode = self.style(simple_zcode)
+
+        mean_wcode = torch.randn(4096, self.w_space_dim).to(simple_wcode.device)
+        mean_wcode = self.style(mean_wcode).mean(0, keepdim=True)
+
+        # Truncation for reducing strange faces ...
+        simple_wcode = 0.75*simple_wcode + 0.25 * mean_wcode
 
         wcode = simple_wcode.unsqueeze(1).unsqueeze(1)
 
@@ -799,7 +806,6 @@ def python_sample(number):
 
     # Random must be set before model, it is realy strange !!! ...
     zcode = torch.randn(number, 1, 1, 512)
-    wmean = torch.randn(4096, 1, 1, 512)
 
     model_setenv()
     device = model_device()
@@ -815,13 +821,8 @@ def python_sample(number):
     start_time = time.time()
 
     zcode = zcode.to(device)
-    wmean = wmean.to(device)
     with torch.no_grad():
-        wmean = transformer(wmean)
-        wmean = wmean.mean(0, keepdim=True)
         wcode = transformer(zcode)
-        wcode = 0.75*wcode + 0.25*wmean
-
         image = decoder(wcode)
     spend_time = time.time() - start_time
     print("Spend time: {:.2f} seconds".format(spend_time))
@@ -863,14 +864,10 @@ def onnx_sample(number):
 
     toimage = transforms.ToPILImage()
 
-    wmean = torch.randn(4096, 1, 1, 512)
-    wmean = onnx_model_forward(transformer, wmean)
-    wmean = wmean.mean(0, keepdim=True)
     images = []
     for i in range(number):
         zcode = torch.randn(1, 1, 1, 512)
         wcode = onnx_model_forward(transformer, zcode)
-        wcode = 0.50 * wcode + 0.50 * wmean
         image = onnx_model_forward(decoder, wcode)
         images.append(image)
     
