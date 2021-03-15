@@ -10,91 +10,6 @@ import torchvision.utils as utils
 from PIL import Image
 import torchvision.transforms as transforms
 
-# xxxx3333
-# def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
-#     '''scipy.signal.upfirdn ?'''
-#     out = upfirdn2d_native(
-#         input, kernel, up, up, down, down, pad[0], pad[1], pad[0], pad[1]
-#     )
-#     # print("upfirdn2d {} --{}--> {}".format(input.size(), kernel.size(), out.size()))
-#     # upfirdn2d torch.Size([9, 512, 9, 9]) --torch.Size([4, 4])--> torch.Size([9, 512, 8, 8])
-#     # upfirdn2d torch.Size([9, 3, 4, 4]) --torch.Size([4, 4])--> torch.Size([9, 3, 8, 8])
-#     # upfirdn2d torch.Size([9, 512, 17, 17]) --torch.Size([4, 4])--> torch.Size([9, 512, 16, 16])
-#     # upfirdn2d torch.Size([9, 3, 8, 8]) --torch.Size([4, 4])--> torch.Size([9, 3, 16, 16])
-#     # upfirdn2d torch.Size([9, 512, 33, 33]) --torch.Size([4, 4])--> torch.Size([9, 512, 32, 32])
-#     # upfirdn2d torch.Size([9, 3, 16, 16]) --torch.Size([4, 4])--> torch.Size([9, 3, 32, 32])
-#     # upfirdn2d torch.Size([9, 512, 65, 65]) --torch.Size([4, 4])--> torch.Size([9, 512, 64, 64])
-#     # upfirdn2d torch.Size([9, 3, 32, 32]) --torch.Size([4, 4])--> torch.Size([9, 3, 64, 64])
-#     # upfirdn2d torch.Size([9, 256, 129, 129]) --torch.Size([4, 4])--> torch.Size([9, 256, 128, 128])
-#     # upfirdn2d torch.Size([9, 3, 64, 64]) --torch.Size([4, 4])--> torch.Size([9, 3, 128, 128])
-#     # upfirdn2d torch.Size([9, 128, 257, 257]) --torch.Size([4, 4])--> torch.Size([9, 128, 256, 256])
-#     # upfirdn2d torch.Size([9, 3, 128, 128]) --torch.Size([4, 4])--> torch.Size([9, 3, 256, 256])
-#     # upfirdn2d torch.Size([9, 64, 513, 513]) --torch.Size([4, 4])--> torch.Size([9, 64, 512, 512])
-#     # upfirdn2d torch.Size([9, 3, 256, 256]) --torch.Size([4, 4])--> torch.Size([9, 3, 512, 512])
-#     # upfirdn2d torch.Size([9, 32, 1025, 1025]) --torch.Size([4, 4])--> torch.Size([9, 32, 1024, 1024])
-#     # upfirdn2d torch.Size([9, 3, 512, 512]) --torch.Size([4, 4])--> torch.Size([9, 3, 1024, 1024])
-
-#     return out
-
-# xxxx3333
-# def upfirdn2d_native(
-#     input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
-# ):
-#     # up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1 -- (1, 1, 1, 1, 1, 1, 1, 1)
-
-#     _, channel, in_h, in_w = input.shape
-#     input = input.reshape(-1, in_h, in_w, 1)
-
-#     _, in_h, in_w, minor = input.shape
-#     kernel_h, kernel_w = kernel.shape
-
-#     out = input.view(-1, in_h, 1, in_w, 1, minor)
-#     out = F.pad(out, [0, 0, 0, up_x - 1, 0, 0, 0, up_y - 1])
-#     # pdb.set_trace(), [0, 0, 0, 0, 0, 0, 0, 0]
-#     # out.size() -- torch.Size([4608, 9, 1, 9, 1, 1])
-#     out = out.view(-1, in_h * up_y, in_w * up_x, minor)
-#     # in_h * up_y, in_w * up_x, minor -- (4608, 9, 9, 1)
-
-#     out = F.pad(
-#         out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)]
-#     )
-#     # [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)] -- [0, 0, 1, 1, 1, 1]
-
-#     # xxxx8888
-#     # out = out[
-#     #     :,
-#     #     max(-pad_y0, 0): out.shape[1] - max(-pad_y1, 0),
-#     #     max(-pad_x0, 0): out.shape[2] - max(-pad_x1, 0),
-#     #     :,
-#     # ]
-
-#     # torch.Size([4608, 11, 11, 1])
-#     out = out.permute(0, 3, 1, 2)
-#     out = out.reshape(
-#         [-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1]
-#     )
-#     # [-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1] -- [-1, 1, 11, 11]
-#     w = torch.flip(kernel, [0, 1]).view(1, 1, kernel_h, kernel_w)
-#     # (Pdb) out.size(), w.size() -- (torch.Size([4608, 1, 11, 11]), torch.Size([1, 1, 4, 4]))
-
-#     out = F.conv2d(out, w)
-#     out = out.reshape(
-#         -1,
-#         minor,
-#         in_h * up_y + pad_y0 + pad_y1 - kernel_h + 1, # 8, 
-#         in_w * up_x + pad_x0 + pad_x1 - kernel_w + 1, # 8
-#     )
-#     # out.size() -- torch.Size([4608, 1, 8, 8])
-#     out = out.permute(0, 2, 3, 1)
-#     # xxxx8888
-#     # out = out[:, ::down_y, ::down_x, :]
-
-#     out_h = (in_h * up_y + pad_y0 + pad_y1 - kernel_h) // down_y + 1 # 8 
-#     out_w = (in_w * up_x + pad_x0 + pad_x1 - kernel_w) // down_x + 1 # 8
-
-#     return out.view(-1, channel, out_h, out_w)
-
-
 class FusedLeakyReLU(nn.Module):
     def __init__(self, channel, negative_slope=0.2, scale=2 ** 0.5):
         super().__init__()
@@ -127,29 +42,6 @@ def make_kernel(k):
 
     return k
 
-class Upsample(nn.Module):
-    def __init__(self, kernel, factor=2):
-        super().__init__()
-
-        self.factor = factor
-        kernel = make_kernel(kernel) * (factor ** 2)
-        self.register_buffer("kernel", kernel)
-
-        p = kernel.shape[0] - factor
-
-        pad0 = (p + 1) // 2 + factor - 1
-        pad1 = p // 2
-
-        self.pad = (pad0, pad1)
-
-    def forward(self, input):
-        # xxxx8888
-        # out = upfirdn2d(input, self.kernel, up=self.factor, down=1, pad=self.pad)
-        # upfirdn2d torch.Size([9, 3, 4, 4]) --torch.Size([4, 4])--> torch.Size([9, 3, 8, 8])
-        out = None
-        return out
-
-
 class Blur(nn.Module):
     def __init__(self, kernel, pad, upsample_factor=1):
         super().__init__()
@@ -164,8 +56,6 @@ class Blur(nn.Module):
         self.pad = pad
 
     def forward(self, input):
-        # xxxx8888
-        # out = upfirdn2d(input, self.kernel, pad=self.pad)
         b, c, h, w = input.shape
         input = input.view(b * c, 1, h, w)
         weight = self.kernel.view(1, 1, 4, 4)
@@ -479,15 +369,14 @@ class ToRGBWithUpsample(nn.Module):
     def __init__(self, in_channel, w_space_dim):
         super().__init__()
 
-        self.upsample = Upsample([1, 3, 3, 1]) # xxxx8888 reserved for checkpoint
-        self.nn_upsample = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=True)
+        self.upsample = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=True)
 
         self.conv = ModulatedConv2dWithoutNormWeight(in_channel, out_channel=3, kernel_size=1, w_space_dim=w_space_dim)
         self.bias = nn.Parameter(torch.zeros(1, 3, 1, 1))
 
     def forward(self, input, style, skip):
         out = self.conv(input, style) + self.bias
-        skip = self.nn_upsample(skip)
+        skip = self.upsample(skip)
         return out + skip
 
 
@@ -672,8 +561,17 @@ def get_decoder():
     print("Creating decoder ...")
     model = Generator(1024, 512, 8)
     checkpoint = "models/ImageGanDecoder.pth"
-    model_weights = torch.load(checkpoint)["g_ema"]
-    model.load_state_dict(model_weights)
+
+    if not os.path.exists(checkpoint):
+        print("Model '{}' does not exist.".format(checkpoint))
+    else:
+        source_state_dict = torch.load(checkpoint, map_location=lambda storage, loc: storage)
+        source_state_dict = source_state_dict["g_ema"]
+        target_state_dict = model.state_dict()
+        for n in target_state_dict.keys():
+            p = source_state_dict[n]
+            target_state_dict[n].copy_(p)
+    return model
 
     # Start weight factorizing
     if False:
