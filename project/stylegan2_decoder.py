@@ -5,95 +5,94 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 import onnxruntime
-
 import time
 import torchvision.utils as utils
 from PIL import Image
 import torchvision.transforms as transforms
 
-def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
-    '''scipy.signal.upfirdn ?'''
-    out = upfirdn2d_native(
-        input, kernel, up, up, down, down, pad[0], pad[1], pad[0], pad[1]
-    )
-    print("upfidn2d:  up = {}".format(up))
-    print("upfirdn2d {} --{}--> {}".format(input.size(), kernel.size(), out.size()))
-    # upfirdn2d torch.Size([9, 512, 9, 9]) --torch.Size([4, 4])--> torch.Size([9, 512, 8, 8])
-    # upfirdn2d torch.Size([9, 3, 4, 4]) --torch.Size([4, 4])--> torch.Size([9, 3, 8, 8])
-    # upfirdn2d torch.Size([9, 512, 17, 17]) --torch.Size([4, 4])--> torch.Size([9, 512, 16, 16])
-    # upfirdn2d torch.Size([9, 3, 8, 8]) --torch.Size([4, 4])--> torch.Size([9, 3, 16, 16])
-    # upfirdn2d torch.Size([9, 512, 33, 33]) --torch.Size([4, 4])--> torch.Size([9, 512, 32, 32])
-    # upfirdn2d torch.Size([9, 3, 16, 16]) --torch.Size([4, 4])--> torch.Size([9, 3, 32, 32])
-    # upfirdn2d torch.Size([9, 512, 65, 65]) --torch.Size([4, 4])--> torch.Size([9, 512, 64, 64])
-    # upfirdn2d torch.Size([9, 3, 32, 32]) --torch.Size([4, 4])--> torch.Size([9, 3, 64, 64])
-    # upfirdn2d torch.Size([9, 256, 129, 129]) --torch.Size([4, 4])--> torch.Size([9, 256, 128, 128])
-    # upfirdn2d torch.Size([9, 3, 64, 64]) --torch.Size([4, 4])--> torch.Size([9, 3, 128, 128])
-    # upfirdn2d torch.Size([9, 128, 257, 257]) --torch.Size([4, 4])--> torch.Size([9, 128, 256, 256])
-    # upfirdn2d torch.Size([9, 3, 128, 128]) --torch.Size([4, 4])--> torch.Size([9, 3, 256, 256])
-    # upfirdn2d torch.Size([9, 64, 513, 513]) --torch.Size([4, 4])--> torch.Size([9, 64, 512, 512])
-    # upfirdn2d torch.Size([9, 3, 256, 256]) --torch.Size([4, 4])--> torch.Size([9, 3, 512, 512])
-    # upfirdn2d torch.Size([9, 32, 1025, 1025]) --torch.Size([4, 4])--> torch.Size([9, 32, 1024, 1024])
-    # upfirdn2d torch.Size([9, 3, 512, 512]) --torch.Size([4, 4])--> torch.Size([9, 3, 1024, 1024])
+# xxxx3333
+# def upfirdn2d(input, kernel, up=1, down=1, pad=(0, 0)):
+#     '''scipy.signal.upfirdn ?'''
+#     out = upfirdn2d_native(
+#         input, kernel, up, up, down, down, pad[0], pad[1], pad[0], pad[1]
+#     )
+#     # print("upfirdn2d {} --{}--> {}".format(input.size(), kernel.size(), out.size()))
+#     # upfirdn2d torch.Size([9, 512, 9, 9]) --torch.Size([4, 4])--> torch.Size([9, 512, 8, 8])
+#     # upfirdn2d torch.Size([9, 3, 4, 4]) --torch.Size([4, 4])--> torch.Size([9, 3, 8, 8])
+#     # upfirdn2d torch.Size([9, 512, 17, 17]) --torch.Size([4, 4])--> torch.Size([9, 512, 16, 16])
+#     # upfirdn2d torch.Size([9, 3, 8, 8]) --torch.Size([4, 4])--> torch.Size([9, 3, 16, 16])
+#     # upfirdn2d torch.Size([9, 512, 33, 33]) --torch.Size([4, 4])--> torch.Size([9, 512, 32, 32])
+#     # upfirdn2d torch.Size([9, 3, 16, 16]) --torch.Size([4, 4])--> torch.Size([9, 3, 32, 32])
+#     # upfirdn2d torch.Size([9, 512, 65, 65]) --torch.Size([4, 4])--> torch.Size([9, 512, 64, 64])
+#     # upfirdn2d torch.Size([9, 3, 32, 32]) --torch.Size([4, 4])--> torch.Size([9, 3, 64, 64])
+#     # upfirdn2d torch.Size([9, 256, 129, 129]) --torch.Size([4, 4])--> torch.Size([9, 256, 128, 128])
+#     # upfirdn2d torch.Size([9, 3, 64, 64]) --torch.Size([4, 4])--> torch.Size([9, 3, 128, 128])
+#     # upfirdn2d torch.Size([9, 128, 257, 257]) --torch.Size([4, 4])--> torch.Size([9, 128, 256, 256])
+#     # upfirdn2d torch.Size([9, 3, 128, 128]) --torch.Size([4, 4])--> torch.Size([9, 3, 256, 256])
+#     # upfirdn2d torch.Size([9, 64, 513, 513]) --torch.Size([4, 4])--> torch.Size([9, 64, 512, 512])
+#     # upfirdn2d torch.Size([9, 3, 256, 256]) --torch.Size([4, 4])--> torch.Size([9, 3, 512, 512])
+#     # upfirdn2d torch.Size([9, 32, 1025, 1025]) --torch.Size([4, 4])--> torch.Size([9, 32, 1024, 1024])
+#     # upfirdn2d torch.Size([9, 3, 512, 512]) --torch.Size([4, 4])--> torch.Size([9, 3, 1024, 1024])
 
-    return out
+#     return out
 
+# xxxx3333
+# def upfirdn2d_native(
+#     input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
+# ):
+#     # up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1 -- (1, 1, 1, 1, 1, 1, 1, 1)
 
-def upfirdn2d_native(
-    input, kernel, up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1
-):
-    # up_x, up_y, down_x, down_y, pad_x0, pad_x1, pad_y0, pad_y1 -- (1, 1, 1, 1, 1, 1, 1, 1)
+#     _, channel, in_h, in_w = input.shape
+#     input = input.reshape(-1, in_h, in_w, 1)
 
-    _, channel, in_h, in_w = input.shape
-    input = input.reshape(-1, in_h, in_w, 1)
+#     _, in_h, in_w, minor = input.shape
+#     kernel_h, kernel_w = kernel.shape
 
-    _, in_h, in_w, minor = input.shape
-    kernel_h, kernel_w = kernel.shape
+#     out = input.view(-1, in_h, 1, in_w, 1, minor)
+#     out = F.pad(out, [0, 0, 0, up_x - 1, 0, 0, 0, up_y - 1])
+#     # pdb.set_trace(), [0, 0, 0, 0, 0, 0, 0, 0]
+#     # out.size() -- torch.Size([4608, 9, 1, 9, 1, 1])
+#     out = out.view(-1, in_h * up_y, in_w * up_x, minor)
+#     # in_h * up_y, in_w * up_x, minor -- (4608, 9, 9, 1)
 
-    out = input.view(-1, in_h, 1, in_w, 1, minor)
-    out = F.pad(out, [0, 0, 0, up_x - 1, 0, 0, 0, up_y - 1])
-    # pdb.set_trace(), [0, 0, 0, 0, 0, 0, 0, 0]
-    # out.size() -- torch.Size([4608, 9, 1, 9, 1, 1])
-    out = out.view(-1, in_h * up_y, in_w * up_x, minor)
-    # in_h * up_y, in_w * up_x, minor -- (4608, 9, 9, 1)
+#     out = F.pad(
+#         out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)]
+#     )
+#     # [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)] -- [0, 0, 1, 1, 1, 1]
 
-    out = F.pad(
-        out, [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)]
-    )
-    # [0, 0, max(pad_x0, 0), max(pad_x1, 0), max(pad_y0, 0), max(pad_y1, 0)] -- [0, 0, 1, 1, 1, 1]
+#     # xxxx8888
+#     # out = out[
+#     #     :,
+#     #     max(-pad_y0, 0): out.shape[1] - max(-pad_y1, 0),
+#     #     max(-pad_x0, 0): out.shape[2] - max(-pad_x1, 0),
+#     #     :,
+#     # ]
 
-    # xxxx8888
-    # out = out[
-    #     :,
-    #     max(-pad_y0, 0): out.shape[1] - max(-pad_y1, 0),
-    #     max(-pad_x0, 0): out.shape[2] - max(-pad_x1, 0),
-    #     :,
-    # ]
+#     # torch.Size([4608, 11, 11, 1])
+#     out = out.permute(0, 3, 1, 2)
+#     out = out.reshape(
+#         [-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1]
+#     )
+#     # [-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1] -- [-1, 1, 11, 11]
+#     w = torch.flip(kernel, [0, 1]).view(1, 1, kernel_h, kernel_w)
+#     # (Pdb) out.size(), w.size() -- (torch.Size([4608, 1, 11, 11]), torch.Size([1, 1, 4, 4]))
 
-    # torch.Size([4608, 11, 11, 1])
-    out = out.permute(0, 3, 1, 2)
-    out = out.reshape(
-        [-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1]
-    )
-    # [-1, 1, in_h * up_y + pad_y0 + pad_y1, in_w * up_x + pad_x0 + pad_x1] -- [-1, 1, 11, 11]
-    w = torch.flip(kernel, [0, 1]).view(1, 1, kernel_h, kernel_w)
-    # (Pdb) out.size(), w.size() -- (torch.Size([4608, 1, 11, 11]), torch.Size([1, 1, 4, 4]))
+#     out = F.conv2d(out, w)
+#     out = out.reshape(
+#         -1,
+#         minor,
+#         in_h * up_y + pad_y0 + pad_y1 - kernel_h + 1, # 8, 
+#         in_w * up_x + pad_x0 + pad_x1 - kernel_w + 1, # 8
+#     )
+#     # out.size() -- torch.Size([4608, 1, 8, 8])
+#     out = out.permute(0, 2, 3, 1)
+#     # xxxx8888
+#     # out = out[:, ::down_y, ::down_x, :]
 
-    out = F.conv2d(out, w)
-    out = out.reshape(
-        -1,
-        minor,
-        in_h * up_y + pad_y0 + pad_y1 - kernel_h + 1, # 8, 
-        in_w * up_x + pad_x0 + pad_x1 - kernel_w + 1, # 8
-    )
-    # out.size() -- torch.Size([4608, 1, 8, 8])
-    out = out.permute(0, 2, 3, 1)
-    # xxxx8888
-    # out = out[:, ::down_y, ::down_x, :]
+#     out_h = (in_h * up_y + pad_y0 + pad_y1 - kernel_h) // down_y + 1 # 8 
+#     out_w = (in_w * up_x + pad_x0 + pad_x1 - kernel_w) // down_x + 1 # 8
 
-    out_h = (in_h * up_y + pad_y0 + pad_y1 - kernel_h) // down_y + 1 # 8 
-    out_w = (in_w * up_x + pad_x0 + pad_x1 - kernel_w) // down_x + 1 # 8
-
-    return out.view(-1, channel, out_h, out_w)
+#     return out.view(-1, channel, out_h, out_w)
 
 
 class FusedLeakyReLU(nn.Module):
@@ -107,16 +106,8 @@ class FusedLeakyReLU(nn.Module):
     def forward(self, input):
         return fused_leaky_relu(input, self.bias, self.negative_slope, self.scale)
 
-
 def fused_leaky_relu(input, bias, negative_slope=0.2, scale=2 ** 0.5):
-    rest_dim = [1] * (input.ndim - bias.ndim - 1)
-    # pdb.set_trace()
-    # input.size() -- torch.Size([9, 512]), input.ndim = 2
-    # bias.ndim == 1
-    print("rest_dim =", rest_dim)
-    # xxxx8888
-    return F.leaky_relu(input + bias.view(1, bias.shape[0], *rest_dim), negative_slope=0.2) * scale
-
+    return F.leaky_relu(input + bias.view(1, bias.shape[0], 1, 1), negative_slope=0.2) * scale
 
 class PixelNorm(nn.Module):
     def __init__(self):
@@ -153,11 +144,9 @@ class Upsample(nn.Module):
 
     def forward(self, input):
         # xxxx8888
-        print("Upsample: self.factor = {}".format(self.factor))
-        #
-        out = upfirdn2d(input, self.kernel, up=self.factor, down=1, pad=self.pad)
+        # out = upfirdn2d(input, self.kernel, up=self.factor, down=1, pad=self.pad)
         # upfirdn2d torch.Size([9, 3, 4, 4]) --torch.Size([4, 4])--> torch.Size([9, 3, 8, 8])
-
+        out = None
         return out
 
 
@@ -175,8 +164,6 @@ class Blur(nn.Module):
         self.pad = pad
 
     def forward(self, input):
-        # xxxx8888
-        print("Blur: self.pad = {}".format(self.pad))
         # xxxx8888
         # out = upfirdn2d(input, self.kernel, pad=self.pad)
         b, c, h, w = input.shape
@@ -201,11 +188,6 @@ class EqualLinear(nn.Module):
         out = F.linear(input, self.weight * self.scale, bias=self.bias * self.lr_mul)
         return out
 
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]})"
-        )
-
 class EqualLinearWithLeakyRelu(nn.Module):
     '''Add this class for onnx -- data driven flow is difficult tracing.'''
     def __init__(self, in_dim, out_dim, bias_init=0, lr_mul=1):
@@ -216,17 +198,14 @@ class EqualLinearWithLeakyRelu(nn.Module):
         self.scale = (1 / math.sqrt(in_dim)) * lr_mul
         self.lr_mul = lr_mul
 
+    def leaky_relu(self, input, bias, negative_slope=0.2, scale=2 ** 0.5):
+        return F.leaky_relu(input + bias.view(1, bias.shape[0]), negative_slope=0.2) * scale
+
     def forward(self, input):
         out = F.linear(input, self.weight * self.scale)
-        out = fused_leaky_relu(out, self.bias * self.lr_mul)
+        out = self.leaky_relu(out, self.bias * self.lr_mul)
 
         return out
-
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}({self.weight.shape[1]}, {self.weight.shape[0]})"
-        )
-
 
 class ModulatedConv2d(nn.Module):
     def __init__(
@@ -235,7 +214,6 @@ class ModulatedConv2d(nn.Module):
         out_channel,
         kernel_size,
         w_space_dim,
-        upsample=False,
         blur_kernel=[1, 3, 3, 1],
     ):
         super().__init__()
@@ -243,16 +221,6 @@ class ModulatedConv2d(nn.Module):
         self.kernel_size = kernel_size
         self.in_channel = in_channel
         self.out_channel = out_channel
-        self.upsample = upsample
-
-        if upsample:
-            factor = 2
-            p = (len(blur_kernel) - factor) - (kernel_size - 1)
-            pad0 = (p + 1) // 2 + factor - 1
-            pad1 = p // 2 + 1
-            # xxxx8888
-            self.blur = Blur(blur_kernel, pad=(
-                pad0, pad1), upsample_factor=factor)
 
         fan_in = in_channel * kernel_size ** 2
         self.scale = 1 / math.sqrt(fan_in)
@@ -264,11 +232,68 @@ class ModulatedConv2d(nn.Module):
 
         self.modulation = EqualLinear(w_space_dim, in_channel, bias_init=1)
 
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}({self.in_channel}, {self.out_channel}, {self.kernel_size}, "
-            f"upsample={self.upsample}, downsample={self.downsample})"
+    def forward(self, input, style):
+        batch, in_channel, height, width = input.shape[0], input.shape[1], input.shape[2], input.shape[3]
+
+        style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
+        weight = self.scale * self.weight * style
+        # Norm weight !!!
+        demod = torch.rsqrt(weight.pow(2).sum([2, 3, 4]) + 1e-8).view(batch, self.out_channel, 1, 1, 1)
+        weight = weight * demod
+        weight = weight.view(batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size)
+
+        input = input.view(1, batch * in_channel, height, width)
+        # input.size() -- torch.Size([1, 512, 4, 4])
+        # weight.size() -- torch.Size([512, 512, 3, 3])
+        # TracerWarning: Converting a tensor to a Python integer might cause the trace 
+        # to be incorrect
+        out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
+        # print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
+        # torch.Size([1, 4608, 4, 4]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 4, 4])
+        # torch.Size([1, 4608, 8, 8]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 8, 8])
+        # torch.Size([1, 4608, 16, 16]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 16, 16])
+        # torch.Size([1, 4608, 32, 32]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 32, 32])
+        # torch.Size([1, 4608, 64, 64]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 64, 64])
+        # torch.Size([1, 2304, 128, 128]) -- torch.Size([2304, 256, 3, 3]) --> torch.Size([1, 2304, 128, 128])
+        # torch.Size([1, 1152, 256, 256]) -- torch.Size([1152, 128, 3, 3]) --> torch.Size([1, 1152, 256, 256])
+        # torch.Size([1, 576, 512, 512]) -- torch.Size([576, 64, 3, 3]) --> torch.Size([1, 576, 512, 512])
+        # torch.Size([1, 288, 1024, 1024]) -- torch.Size([288, 32, 3, 3]) --> torch.Size([1, 288, 1024, 1024])
+
+        height, width = out.shape[2], out.shape[3]
+        return out.view(batch, self.out_channel, height, width)
+
+
+class ModulatedConv2dWithUpsample(nn.Module):
+    def __init__(
+        self,
+        in_channel,
+        out_channel,
+        kernel_size,
+        w_space_dim,
+        blur_kernel=[1, 3, 3, 1],
+    ):
+        super().__init__()
+
+        self.kernel_size = kernel_size
+        self.in_channel = in_channel
+        self.out_channel = out_channel
+
+        factor = 2
+        p = (len(blur_kernel) - factor) - (kernel_size - 1)
+        pad0 = (p + 1) // 2 + factor - 1
+        pad1 = p // 2 + 1
+        self.blur = Blur(blur_kernel, pad=(pad0, pad1), upsample_factor=factor)
+
+        fan_in = in_channel * kernel_size ** 2
+        self.scale = 1 / math.sqrt(fan_in)
+        self.padding = kernel_size // 2
+
+        self.weight = nn.Parameter(
+            torch.randn(1, out_channel, in_channel, kernel_size, kernel_size)
         )
+
+        self.modulation = EqualLinear(w_space_dim, in_channel, bias_init=1)
+
 
     def forward(self, input, style):
         batch, in_channel, height, width = input.shape[0], input.shape[1], input.shape[2], input.shape[3]
@@ -276,69 +301,30 @@ class ModulatedConv2d(nn.Module):
         style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
         weight = self.scale * self.weight * style
 
-
-        # xxxx8888
-        # if self.demodulate:
-        #     demod = torch.rsqrt(weight.pow(2).sum([2, 3, 4]) + 1e-8)
-        #     weight = weight * demod.view(batch, self.out_channel, 1, 1, 1)
-
         # Norm weight !!!
         demod = torch.rsqrt(weight.pow(2).sum([2, 3, 4]) + 1e-8)
         weight = weight * demod.view(batch, self.out_channel, 1, 1, 1)
 
-        weight = weight.view(
-            batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size
-        )
+        weight = weight.view(batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size)
 
-        if self.upsample:
-            input = input.view(1, batch * in_channel, height, width)
-            weight = weight.view(
-                batch, self.out_channel, in_channel, self.kernel_size, self.kernel_size
-            )
-            weight = weight.transpose(1, 2).reshape(
-                batch * in_channel, self.out_channel, self.kernel_size, self.kernel_size
-            )
-            out = F.conv_transpose2d(
-                input, weight, padding=0, stride=2, groups=batch)
-            height, width = out.shape[2], out.shape[3]
-            out = out.view(batch, self.out_channel, height, width)
-            # xxxx8888
-            out = self.blur(out)
-            print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
-            # torch.Size([1, 4608, 4, 4]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 8, 8])
-            # torch.Size([1, 4608, 8, 8]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 16, 16])
-            # torch.Size([1, 4608, 16, 16]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 32, 32])
-            # torch.Size([1, 4608, 32, 32]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 64, 64])
-            # torch.Size([1, 4608, 64, 64]) -- torch.Size([4608, 256, 3, 3]) --> torch.Size([9, 256, 128, 128])
-            # torch.Size([1, 2304, 128, 128]) -- torch.Size([2304, 128, 3, 3]) --> torch.Size([9, 128, 256, 256])
-            # torch.Size([1, 1152, 256, 256]) -- torch.Size([1152, 64, 3, 3]) --> torch.Size([9, 64, 512, 512])
-            # torch.Size([1, 576, 512, 512]) -- torch.Size([576, 32, 3, 3]) --> torch.Size([9, 32, 1024, 1024])
-
-        else:
-            input = input.view(1, batch * in_channel, height, width)
-            # input.size() -- torch.Size([1, 512, 4, 4])
-            # weight.size() -- torch.Size([512, 512, 3, 3])
-            # self.padding -- 1
-            # batch -- tensor(1)
-            # TracerWarning: Converting a tensor to a Python integer might cause the trace 
-            # to be incorrect
-            out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
-            print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
-            # torch.Size([1, 4608, 4, 4]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 4, 4])
-            # torch.Size([1, 4608, 8, 8]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 8, 8])
-            # torch.Size([1, 4608, 16, 16]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 16, 16])
-            # torch.Size([1, 4608, 32, 32]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 32, 32])
-            # torch.Size([1, 4608, 64, 64]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 64, 64])
-            # torch.Size([1, 2304, 128, 128]) -- torch.Size([2304, 256, 3, 3]) --> torch.Size([1, 2304, 128, 128])
-            # torch.Size([1, 1152, 256, 256]) -- torch.Size([1152, 128, 3, 3]) --> torch.Size([1, 1152, 256, 256])
-            # torch.Size([1, 576, 512, 512]) -- torch.Size([576, 64, 3, 3]) --> torch.Size([1, 576, 512, 512])
-            # torch.Size([1, 288, 1024, 1024]) -- torch.Size([288, 32, 3, 3]) --> torch.Size([1, 288, 1024, 1024])
-
-            height, width = out.shape[2], out.shape[3]
-            out = out.view(batch, self.out_channel, height, width)
-
+        input = input.view(1, batch * in_channel, height, width)
+        weight = weight.view(batch, self.out_channel, in_channel, self.kernel_size, self.kernel_size)
+        weight = weight.transpose(1, 2).reshape(
+            batch * in_channel, self.out_channel, self.kernel_size, self.kernel_size)
+        out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
+        height, width = out.shape[2], out.shape[3]
+        out = out.view(batch, self.out_channel, height, width)
+        out = self.blur(out)
+        # print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
+        # torch.Size([1, 4608, 4, 4]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 8, 8])
+        # torch.Size([1, 4608, 8, 8]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 16, 16])
+        # torch.Size([1, 4608, 16, 16]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 32, 32])
+        # torch.Size([1, 4608, 32, 32]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([9, 512, 64, 64])
+        # torch.Size([1, 4608, 64, 64]) -- torch.Size([4608, 256, 3, 3]) --> torch.Size([9, 256, 128, 128])
+        # torch.Size([1, 2304, 128, 128]) -- torch.Size([2304, 128, 3, 3]) --> torch.Size([9, 128, 256, 256])
+        # torch.Size([1, 1152, 256, 256]) -- torch.Size([1152, 64, 3, 3]) --> torch.Size([9, 64, 512, 512])
+        # torch.Size([1, 576, 512, 512]) -- torch.Size([576, 32, 3, 3]) --> torch.Size([9, 32, 1024, 1024])
         return out
-
 
 class ModulatedConv2dWithoutNormWeight(nn.Module):
     def __init__(
@@ -364,11 +350,6 @@ class ModulatedConv2dWithoutNormWeight(nn.Module):
 
         self.modulation = EqualLinear(w_space_dim, in_channel, bias_init=1)
 
-    def __repr__(self):
-        return (
-            f"{self.__class__.__name__}({self.in_channel}, {self.out_channel}, {self.kernel_size}"
-        )
-
     def forward(self, input, style):
         batch, in_channel, height, width = input.shape[0], input.shape[1], input.shape[2], input.shape[3]
         style = self.modulation(style).view(batch, 1, in_channel, 1, 1)
@@ -376,15 +357,12 @@ class ModulatedConv2dWithoutNormWeight(nn.Module):
         # (Pdb) self.weight.size(), style.size()
         # (torch.Size([1, 3, 512, 1, 1]), torch.Size([9, 1, 512, 1, 1]))
 
-        weight = weight.view(
-            batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size
-        )
+        weight = weight.view(batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size)
         # batch * self.out_channel, in_channel, self.kernel_size, self.kernel_size -- (27, 512, 1, 1)
 
         input = input.view(1, batch * in_channel, height, width)
         # TracerWarning: Converting a tensor to a Python integer might cause the trace to be incorrect
         out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
-        print("------------------------------------------------------------------")
         # print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
         # torch.Size([1, 4608, 8, 8]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 8, 8])
         # torch.Size([1, 4608, 16, 16]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 16, 16])
@@ -415,9 +393,7 @@ class NoiseInjection(nn.Module):
             noise = torch.rand_like(image)
             mu = noise.mean()
             var = noise.std()
-            noise = (noise - mu)/(var + 1e-6)
-        # xxxx8888
-        noise = torch.zeros_like(image)
+            noise = (noise - mu)/(var + 1e-6) * 0.90    # reduce noise ...
 
         return image + self.weight * noise
 
@@ -444,13 +420,11 @@ class StyledConv(nn.Module):
         out_channel,
         kernel_size,
         w_space_dim,
-        upsample=False,
         blur_kernel=[1, 3, 3, 1],
     ):
         super().__init__()
 
         self.conv = ModulatedConv2d(in_channel, out_channel, kernel_size, w_space_dim,
-                                    upsample=upsample,
                                     blur_kernel=blur_kernel
                                     )
 
@@ -464,13 +438,35 @@ class StyledConv(nn.Module):
 
         return out
 
+class StyledConvWithUpsample(nn.Module):
+    def __init__(
+        self,
+        in_channel,
+        out_channel,
+        kernel_size,
+        w_space_dim,
+        blur_kernel=[1, 3, 3, 1],
+    ):
+        super().__init__()
+
+        self.conv = ModulatedConv2dWithUpsample(in_channel, out_channel, kernel_size, w_space_dim,
+                                    blur_kernel=blur_kernel
+                                    )
+
+        self.noise = NoiseInjection()
+        self.activate = FusedLeakyReLU(out_channel)
+
+    def forward(self, input, style, noise=None):
+        out = self.conv(input, style)
+        out = self.noise(out, noise=noise)
+        out = self.activate(out)
+
+        return out
 
 class ToRGB(nn.Module):
     ''' to_rgbs ...'''
-    #xxxx8888
     def __init__(self, in_channel, w_space_dim):
         super().__init__()
-
         self.conv = ModulatedConv2dWithoutNormWeight(in_channel, out_channel=3, kernel_size=1, w_space_dim=w_space_dim)
         self.bias = nn.Parameter(torch.zeros(1, 3, 1, 1))
 
@@ -480,11 +476,10 @@ class ToRGB(nn.Module):
 
 class ToRGBWithUpsample(nn.Module):
     ''' to_rgbs ...'''
-    #xxxx8888
     def __init__(self, in_channel, w_space_dim):
         super().__init__()
 
-        self.upsample = Upsample([1, 3, 3, 1])
+        self.upsample = Upsample([1, 3, 3, 1]) # xxxx8888 reserved for checkpoint
         self.nn_upsample = nn.Upsample(scale_factor=2, mode='bicubic', align_corners=True)
 
         self.conv = ModulatedConv2dWithoutNormWeight(in_channel, out_channel=3, kernel_size=1, w_space_dim=w_space_dim)
@@ -561,8 +556,12 @@ class Generator(nn.Module):
             self.channels[4], self.channels[4], 3, w_space_dim, blur_kernel=blur_kernel)
         self.to_rgb1 = ToRGB(self.channels[4], w_space_dim)
 
-        self.convs = nn.ModuleList()
-        self.to_rgbs = nn.ModuleList()
+
+        convs_list = []
+        # self.convs = nn.ModuleList()
+
+        to_rgbs_list = []
+        # self.to_rgbs = nn.ModuleList()
         self.noises = nn.Module()
 
         in_channel = self.channels[4]
@@ -576,21 +575,22 @@ class Generator(nn.Module):
         for i in range(3, self.log_size + 1):
             out_channel = self.channels[2 ** i]
 
-            self.convs.append(
-                StyledConv(in_channel, out_channel, 3, w_space_dim,
-                           upsample=True, blur_kernel=blur_kernel)
+            convs_list.append(
+                StyledConvWithUpsample(in_channel, out_channel, 3, w_space_dim, blur_kernel=blur_kernel)
             )
 
-            self.convs.append(
-                StyledConv(out_channel, out_channel, 3,
-                           w_space_dim, blur_kernel=blur_kernel)
+            convs_list.append(
+                StyledConv(out_channel, out_channel, 3, w_space_dim, blur_kernel=blur_kernel)
             )
-
-            self.to_rgbs.append(ToRGBWithUpsample(out_channel, w_space_dim))
+            # self.to_rgbs.append(ToRGBWithUpsample(out_channel, w_space_dim))
+            to_rgbs_list.append(ToRGBWithUpsample(out_channel, w_space_dim))
 
             in_channel = out_channel
 
-        self.eigvectors = torch.zeros(w_space_dim, w_space_dim)
+        self.convs = nn.Sequential(*convs_list)
+        self.to_rgbs = nn.Sequential(*to_rgbs_list)
+
+        # self.eigvectors = torch.zeros(w_space_dim, w_space_dim)
 
     def forward(self, wcode, noise=None):
         if noise is None:
@@ -604,7 +604,6 @@ class Generator(nn.Module):
 
         out = self.input(latent)
         out = self.conv1(out, latent[:, 0], noise=noise[0])
-
         skip = self.to_rgb1(out, latent[:, 1])
 
         i = 1
@@ -660,10 +659,10 @@ class Generator(nn.Module):
 
         return image
 
-    def eigen(self, index):
-        # eigen vector for dim index ...
-        assert index < self.w_space_dim
-        return self.eigvectors[:, index]
+    # def eigen(self, index):
+    #     # eigen vector for dim index ...
+    #     assert index < self.w_space_dim
+    #     return self.eigvectors[:, index]
 
 
 def get_decoder():
@@ -738,11 +737,13 @@ def export_onnx():
     from onnx import optimizer
 
     # ------- For Decoder -----------------------
+    # KNOWN ISSUE: NOT SUPPORT dynamic_axes, NOT CUDA inference For this model !!!
     onnx_file_name = "output/image_gandecoder.onnx"
-    dummy_input = torch.randn(1, 1, 1, 512)
+    dummy_input = torch.randn(1, 1, 1, 512).cuda()
 
     # 1. Create and load model.
     torch_model = get_decoder()
+    torch_model = torch_model.cuda()
     torch_model.eval()
 
     # 2. Model export
@@ -750,7 +751,6 @@ def export_onnx():
 
     input_names = ["input"]
     output_names = ["output"]
-
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                       input_names=input_names,
                       output_names=output_names,
@@ -763,18 +763,20 @@ def export_onnx():
     print('Checking model ...')
     onnx_model = onnx.load(onnx_file_name)
     onnx.checker.check_model(onnx_model)
+    onnx.helper.printable_graph(onnx_model.graph)
     # https://github.com/onnx/optimizer
 
     # 4. Visual model
-    # python -c "import netron; netron.start('output/image_zoom.onnx')"
+    # python -c "import netron; netron.start('output/image_gandecoder.onnx')"
 
 
     # ------- For Transformer -----------------------
     onnx_file_name = "output/image_gantransformer.onnx"
-    dummy_input = torch.randn(1, 1, 1, 512)
+    dummy_input = torch.randn(1, 1, 1, 512).cuda()
 
     # 1. Create and load model.
     torch_model = get_transformer()
+    torch_model = torch_model.cuda()
     torch_model.eval()
 
     # 2. Model export
@@ -782,24 +784,26 @@ def export_onnx():
 
     input_names = ["input"]
     output_names = ["output"]
-
+    dynamic_axes = {'input': {0: "batch"}, 'output': {0: "batch"}}
     torch.onnx.export(torch_model, dummy_input, onnx_file_name,
                       input_names=input_names,
                       output_names=output_names,
                       verbose=True,
                       opset_version=11,
                       keep_initializers_as_inputs=False,
-                      export_params=True)
+                      export_params=True,
+                      dynamic_axes=dynamic_axes)
 
 
     # 3. Optimize model
     print('Checking model ...')
     onnx_model = onnx.load(onnx_file_name)
     onnx.checker.check_model(onnx_model)
+    onnx.helper.printable_graph(onnx_model.graph)
     # https://github.com/onnx/optimizer
 
     # 4. Visual model
-    # python -c "import netron; netron.start('output/image_zoom.onnx')"
+    # python -c "import netron; netron.start('output/image_gantransformer.onnx')"
 
 def verify_onnx():
     """Verify onnx model."""
@@ -811,7 +815,7 @@ def verify_onnx():
     onnx_file_name = "output/image_gantransformer.onnx"
     torch_model = get_transformer()
     torch_model.eval()
-    onnxruntime_engine = onnxruntime.InferenceSession(onnx_file_name)
+    onnxruntime_engine = onnx_model_load(onnx_file_name)
 
     def to_numpy(tensor):
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
@@ -832,7 +836,7 @@ def verify_onnx():
     onnx_file_name = "output/image_gandecoder.onnx"
     torch_model = get_decoder()
     torch_model.eval()
-    onnxruntime_engine = onnxruntime.InferenceSession(onnx_file_name)
+    onnxruntime_engine = onnx_model_load(onnx_file_name)
 
     def to_numpy(tensor):
         return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
@@ -891,12 +895,13 @@ def grid_image(tensor, nrow=3):
     image = Image.fromarray(ndarr)
     return image
 
-def torch_sample(number):
+def python_sample(number):
     '''Sample.'''
     from model import model_setenv, model_device
 
     # Random must be set before model, it is realy strange !!! ...
     zcode = torch.randn(number, 1, 1, 512)
+    wmean = torch.randn(4096, 1, 1, 512)
 
     model_setenv()
     device = model_device()
@@ -908,11 +913,17 @@ def torch_sample(number):
     transformer = transformer.to(device)
     transformer.eval()
 
-    print("Generating torch samples ...")
+    print("Generating samples ...")
     start_time = time.time()
+
     zcode = zcode.to(device)
+    wmean = wmean.to(device)
     with torch.no_grad():
+        wmean = transformer(wmean)
+        wmean = wmean.mean(0, keepdim=True)
         wcode = transformer(zcode)
+        wcode = 0.75*wcode + 0.25*wmean
+
         image = decoder(wcode)
     spend_time = time.time() - start_time
     print("Spend time: {:.2f} seconds".format(spend_time))
@@ -923,7 +934,17 @@ def torch_sample(number):
 
 
 def onnx_model_load(onnx_file):
-    return onnxruntime.InferenceSession(onnx_file)
+    sess_options = onnxruntime.SessionOptions()
+    # sess_options.log_severity_level = 0
+
+    # Set graph optimization level
+    sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
+
+    onnx_model = onnxruntime.InferenceSession(onnx_file, sess_options)
+    # onnx_model.set_providers(['CUDAExecutionProvider'])
+    print("Onnx model engine: ", onnx_model.get_providers(), "Device: ", onnxruntime.get_device())
+
+    return onnx_model
 
 def onnx_model_forward(onnx_model, input):
     def to_numpy(tensor):
@@ -938,20 +959,29 @@ def onnx_sample(number):
 
     decoder = onnx_model_load("output/image_gandecoder.onnx")
     transformer = onnx_model_load("output/image_gantransformer.onnx")
-    device = "cpu"
 
     print("Generating onnx samples ...")
     start_time = time.time()
+
     toimage = transforms.ToPILImage()
 
+    wmean = torch.randn(4096, 1, 1, 512)
+    wmean = onnx_model_forward(transformer, wmean)
+    wmean = wmean.mean(0, keepdim=True)
+    images = []
     for i in range(number):
         zcode = torch.randn(1, 1, 1, 512)
         wcode = onnx_model_forward(transformer, zcode)
+        wcode = 0.50 * wcode + 0.50 * wmean
         image = onnx_model_forward(decoder, wcode)
-        toimage(image.squeeze(0)).save("output/sample-onnx-{}.png".format(i))
-
+        images.append(image)
+    
     spend_time = time.time() - start_time
     print("Spend time: {:.2f} seconds".format(spend_time))
+
+    nrow = int(math.sqrt(number) + 0.5) 
+    image = grid_image(torch.cat(images, dim=0), nrow=nrow)
+    image.save("output/sample-onnx-9.png")
 
 
 if __name__ == '__main__':
@@ -975,14 +1005,13 @@ if __name__ == '__main__':
     if not os.path.exists(args.output):
         os.makedirs(args.output)
 
-
     if args.export:
         export_torch()
-        # export_onnx()
+        export_onnx()
 
     if args.verify:
         verify_onnx()
 
     if args.sample:
-        # onnx_sample(9)
-        torch_sample(9)
+        onnx_sample(9)
+        python_sample(9)
