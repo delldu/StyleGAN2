@@ -13,8 +13,11 @@ from IPython import embed
 from . import pretrained_networks as pn
 
 import lpips as util
+import pdb
 
 def spatial_average(in_tens, keepdim=True):
+    pdb.set_trace()
+
     return in_tens.mean([2,3],keepdim=keepdim)
 
 def upsample(in_tens, out_H=64): # assumes scale factor is same for H and W
@@ -60,9 +63,24 @@ class PNetLin(nn.Module):
                 self.lin5 = NetLinLayer(self.chns[5], use_dropout=use_dropout)
                 self.lin6 = NetLinLayer(self.chns[6], use_dropout=use_dropout)
                 self.lins+=[self.lin5,self.lin6]
+        # pdb.set_trace()
+        # pnet_type = 'vgg'
+        # pnet_rand = False
+        # pnet_tune = False
+        # use_dropout = True
+        # spatial = False
+        # version = '0.1'
+        # lpips = True
 
     def forward(self, in0, in1, retPerLayer=False):
+        # pdb.set_trace()
+        # (Pdb) in0.size() -- torch.Size([1, 3, 256, 256]), 
+        # (Pdb) in1.size() -- torch.Size([1, 3, 256, 256])
+        # (Pdb) in0.mean().item(), in0.min().item(), in0.max().item()
+        # (0.3927803933620453, 0.007843137718737125, 1.0)
+        
         # v0.0 - original release had a bug, where input was not scaled
+
         in0_input, in1_input = (self.scaling_layer(in0), self.scaling_layer(in1)) if self.version=='0.1' else (in0, in1)
         outs0, outs1 = self.net.forward(in0_input), self.net.forward(in1_input)
         feats0, feats1, diffs = {}, {}, {}

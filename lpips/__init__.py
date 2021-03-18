@@ -9,6 +9,7 @@ import torch
 from torch.autograd import Variable
 
 from lpips import dist_model
+import pdb
 
 class PerceptualLoss(torch.nn.Module):
     def __init__(self, model='net-lin', net='alex', colorspace='rgb', spatial=False, use_gpu=True, gpu_ids=[0]): # VGG using our perceptually-learned weights (LPIPS metric)
@@ -40,7 +41,11 @@ class PerceptualLoss(torch.nn.Module):
         return self.model.forward(target, pred)
 
 def normalize_tensor(in_feat,eps=1e-10):
+    # (Pdb) in_feat.size()
+    # torch.Size([1, 64, 256, 256])
     norm_factor = torch.sqrt(torch.sum(in_feat**2,dim=1,keepdim=True))
+    # (Pdb) norm_factor.size()
+    # torch.Size([1, 1, 256, 256])
     return in_feat/(norm_factor+eps)
 
 def l2(p0, p1, range=255.):
