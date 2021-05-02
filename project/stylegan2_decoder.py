@@ -281,15 +281,14 @@ class NoiseInjection(nn.Module):
 
         self.weight = nn.Parameter(torch.zeros(1))
 
-    def forward(self, image, noise=None):
-        if noise is None:
-            batch, _, height, width = image.shape
-            # noise = image.new_empty(batch, 1, height, width).normal_()
-            # Onnx does not support new_empty and normal_, so we develop it
-            noise = torch.rand_like(image)
-            mu = noise.mean()
-            var = noise.std()
-            noise = (noise - mu)/(var + 1e-6) * 0.90    # reduce noise ...
+    def forward(self, image):
+        batch, _, height, width = image.shape
+        # noise = image.new_empty(batch, 1, height, width).normal_()
+        # Onnx does not support new_empty and normal_, so we develop it
+        noise = torch.rand_like(image)
+        mu = noise.mean()
+        var = noise.std()
+        noise = (noise - mu)/(var + 1e-6) * 0.90    # reduce noise ...
 
         return image + self.weight * noise
 
@@ -327,9 +326,9 @@ class StyledConv(nn.Module):
         self.noise = NoiseInjection()
         self.activate = FusedLeakyReLU(out_channel)
 
-    def forward(self, input, style, noise=None):
+    def forward(self, input, style):
         out = self.conv(input, style)
-        out = self.noise(out, noise=noise)
+        out = self.noise(out)
         out = self.activate(out)
 
         return out
@@ -352,9 +351,9 @@ class StyledConvWithUpsample(nn.Module):
         self.noise = NoiseInjection()
         self.activate = FusedLeakyReLU(out_channel)
 
-    def forward(self, input, style, noise=None):
+    def forward(self, input, style):
         out = self.conv(input, style)
-        out = self.noise(out, noise=noise)
+        out = self.noise(out)
         out = self.activate(out)
 
         return out
@@ -494,10 +493,7 @@ class Generator(nn.Module):
 
         # self.eigvectors = torch.zeros(w_space_dim, w_space_dim)
 
-    def forward(self, wcode, noise=None):
-        if noise is None:
-            noise = [None] * self.num_layers
-
+    def forward(self, wcode):
         # wcode = self.style(zcode)
         # self.num_latents -- 18
 
@@ -505,7 +501,7 @@ class Generator(nn.Module):
         # (Pdb) latent.size() -- torch.Size([1, 18, 512])
 
         out = self.input(latent)
-        out = self.conv1(out, latent[:, 0], noise=noise[0])
+        out = self.conv1(out, latent[:, 0])
         skip = self.to_rgb1(out, latent[:, 1])
 
         i = 1
@@ -812,9 +808,6 @@ def python_sample(number):
     '''Sample.'''
     from model import model_setenv, model_device
 
-    # Random must be set before model, it is realy strange !!! ...
-    zcode = torch.randn(number, 1, 1, 512)
-
     model_setenv()
     device = model_device()
     decoder = get_decoder()
@@ -828,16 +821,22 @@ def python_sample(number):
     print("Generating samples ...")
     start_time = time.time()
 
-    zcode = zcode.to(device)
-    with torch.no_grad():
-        wcode = transformer(zcode)
-        image = decoder(wcode)
+    images = []
+    for i in range(number):
+        zcode = torch.randn(1, 1, 1, 512)
+        zcode = zcode.to(device)
+        with torch.no_grad():
+            wcode = transformer(zcode)
+            image = decoder(wcode)
+        images.append(image)
+
     spend_time = time.time() - start_time
     print("Spend time: {:.2f} seconds".format(spend_time))
 
     nrow = int(math.sqrt(number) + 0.5) 
-    image = grid_image(image, nrow=nrow)
+    image = grid_image(torch.cat(images, dim=0), nrow=nrow)
     image.save("output/sample-9.png")
+    image.show()
 
 
 def onnx_model_load(onnx_file):
@@ -869,8 +868,6 @@ def onnx_sample(number):
 
     print("Generating onnx samples ...")
     start_time = time.time()
-
-    toimage = transforms.ToPILImage()
 
     images = []
     for i in range(number):
@@ -918,4 +915,4 @@ if __name__ == '__main__':
 
     if args.sample:
         onnx_sample(9)
-        # python_sample(9)
+        python_sample(9)
