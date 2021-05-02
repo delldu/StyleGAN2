@@ -24,3 +24,4 @@
 `python predict.py --help`
 
 
+Rubish -- predict.py, data.py, test.py, train.py stylegan2_encoder.py ?

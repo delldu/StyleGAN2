@@ -21,7 +21,7 @@ from model import model_device, model_setenv, valid_epoch
 if __name__ == "__main__":
     """Test model."""
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     # parser.add_argument('--checkpoint', type=str,
     #                     default="models/ImageGanEncoder.pth", help="checkpoint file")
     parser.add_argument('--bs', type=int, default=2, help="batch size")

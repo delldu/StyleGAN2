@@ -150,21 +150,3 @@ def model_setenv():
     print("  PWD: ", os.environ["PWD"])
     print("  DEVICE: ", os.environ["DEVICE"])
 
-
-if __name__ == '__main__':
-    """Test model ..."""
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--export', help="Export onnx model", action='store_true')
-    parser.add_argument(
-        '--verify', help="Verify onnx model", action='store_true')
-
-    args = parser.parse_args()
-
-    if args.export:
-        export_onnx()
-
-    if args.verify:
-        verify_onnx()

@@ -24,7 +24,7 @@ from model import (model_device, model_save, model_setenv, train_epoch,
 if __name__ == "__main__":
     """Trainning model."""
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--outputdir', type=str,
                         default="output", help="output directory")
     # parser.add_argument('--checkpoint', type=str,

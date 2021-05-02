@@ -24,7 +24,7 @@ from model import model_setenv, model_device
 if __name__ == "__main__":
     """Predict."""
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         '--input', type=str, default="dataset/input/*.png", help="input image")
     parser.add_argument('--output', type=str, default="output", help="output directory")

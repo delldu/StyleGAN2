@@ -254,7 +254,7 @@ if __name__ == '__main__':
     """Create train/test database ..."""
     import argparse
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--create', help="Create dataset", action='store_true')
     parser.add_argument('--test', help="Test dataset", action='store_true')
 

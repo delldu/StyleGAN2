@@ -437,7 +437,7 @@ if __name__ == '__main__':
     import argparse
     import os
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         '--export', help="Export onnx model", action='store_true')
     parser.add_argument(

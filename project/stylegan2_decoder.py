@@ -1,5 +1,6 @@
 import math
 import pdb
+import os
 
 import torch
 from torch import nn
@@ -65,7 +66,7 @@ class Blur(nn.Module):
         return out
 
 
-class EqualLinear(nn.Module):
+class EqualLinear(torch.jit.ScriptModule):
     def __init__(self, in_dim, out_dim, bias_init=0, lr_mul=1):
         super().__init__()
 
@@ -97,7 +98,7 @@ class EqualLinearWithLeakyRelu(nn.Module):
 
         return out
 
-class ModulatedConv2d(nn.Module):
+class ModulatedConv2d(torch.jit.ScriptModule):
     def __init__(
         self,
         in_channel,
@@ -122,6 +123,7 @@ class ModulatedConv2d(nn.Module):
 
         self.modulation = EqualLinear(w_space_dim, in_channel, bias_init=1)
 
+    # @torch.jit.script_method
     def forward(self, input, style):
         batch, in_channel, height, width = input.shape[0], input.shape[1], input.shape[2], input.shape[3]
 
@@ -137,7 +139,9 @@ class ModulatedConv2d(nn.Module):
         # weight.size() -- torch.Size([512, 512, 3, 3])
         # TracerWarning: Converting a tensor to a Python integer might cause the trace 
         # to be incorrect
-        out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
+        # out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
+        out = F.conv2d(input, weight, padding=1, groups=1)
+
         # print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
         # torch.Size([1, 4608, 4, 4]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 4, 4])
         # torch.Size([1, 4608, 8, 8]) -- torch.Size([4608, 512, 3, 3]) --> torch.Size([1, 4608, 8, 8])
@@ -201,7 +205,8 @@ class ModulatedConv2dWithUpsample(nn.Module):
         weight = weight.view(batch, self.out_channel, in_channel, self.kernel_size, self.kernel_size)
         weight = weight.transpose(1, 2).reshape(
             batch * in_channel, self.out_channel, self.kernel_size, self.kernel_size)
-        out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
+        # out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=batch)
+        out = F.conv_transpose2d(input, weight, padding=0, stride=2, groups=1)
         height, width = out.shape[2], out.shape[3]
         out = out.view(batch, self.out_channel, height, width)
         out = self.blur(out)
@@ -252,7 +257,8 @@ class ModulatedConv2dWithoutNormWeight(nn.Module):
 
         input = input.view(1, batch * in_channel, height, width)
         # TracerWarning: Converting a tensor to a Python integer might cause the trace to be incorrect
-        out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
+        # out = F.conv2d(input, weight, padding=self.kernel_size//2, groups=batch)
+        out = F.conv2d(input, weight, padding=0, groups=1)
         # print("{} -- {} --> {}".format(input.size(), weight.size(), out.size()))
         # torch.Size([1, 4608, 8, 8]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 8, 8])
         # torch.Size([1, 4608, 16, 16]) -- torch.Size([27, 512, 1, 1]) --> torch.Size([1, 27, 16, 16])
@@ -393,6 +399,7 @@ class StyleGAN2Transformer(nn.Module):
 
         self.style = nn.Sequential(*layers)
         self.w_space_dim = w_space_dim
+        self.mean_wcode = torch.randn(4096, self.w_space_dim).mean(0, keepdim=True)
 
     def forward(self, zcode):
         '''Transform zcode to wcode. zcode format Bx1x1x512, return wcode: Bx1x1x512'''
@@ -400,11 +407,10 @@ class StyleGAN2Transformer(nn.Module):
         # [9, 1, 1, 512] --> [9, 512]
         simple_wcode = self.style(simple_zcode)
 
-        mean_wcode = torch.randn(4096, self.w_space_dim).to(simple_wcode.device)
-        mean_wcode = self.style(mean_wcode).mean(0, keepdim=True)
+        temp_mean_wcode = self.style(self.mean_wcode.to(simple_wcode.device))
 
         # Truncation for reducing strange faces ...
-        simple_wcode = 0.75*simple_wcode + 0.25 * mean_wcode
+        simple_wcode = 0.75*simple_wcode + 0.25 * temp_mean_wcode
 
         wcode = simple_wcode.unsqueeze(1).unsqueeze(1)
 
@@ -644,11 +650,12 @@ def export_onnx():
     # ------- For Decoder -----------------------
     # KNOWN ISSUE: NOT SUPPORT dynamic_axes, NOT CUDA inference For this model !!!
     onnx_file_name = "output/image_gandecoder.onnx"
-    dummy_input = torch.randn(1, 1, 1, 512).cuda()
+    # dummy_input = torch.randn(1, 1, 1, 512).cuda()
+    dummy_input = torch.randn(1, 1, 1, 512)
 
     # 1. Create and load model.
     torch_model = get_decoder()
-    torch_model = torch_model.cuda()
+    # torch_model = torch_model.cuda()
     torch_model.eval()
 
     # 2. Model export
@@ -677,11 +684,12 @@ def export_onnx():
 
     # ------- For Transformer -----------------------
     onnx_file_name = "output/image_gantransformer.onnx"
-    dummy_input = torch.randn(1, 1, 1, 512).cuda()
+    # dummy_input = torch.randn(1, 1, 1, 512).cuda()
+    dummy_input = torch.randn(1, 1, 1, 512)
 
     # 1. Create and load model.
     torch_model = get_transformer()
-    torch_model = torch_model.cuda()
+    # torch_model = torch_model.cuda()
     torch_model.eval()
 
     # 2. Model export
@@ -877,6 +885,7 @@ def onnx_sample(number):
     nrow = int(math.sqrt(number) + 0.5) 
     image = grid_image(torch.cat(images, dim=0), nrow=nrow)
     image.save("output/sample-onnx-9.png")
+    image.show()
 
 
 if __name__ == '__main__':
@@ -884,7 +893,7 @@ if __name__ == '__main__':
     import argparse
     import os
 
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         '--export', help="Export onnx model", action='store_true')
     parser.add_argument(
@@ -909,4 +918,4 @@ if __name__ == '__main__':
 
     if args.sample:
         onnx_sample(9)
-        python_sample(9)
+        # python_sample(9)
