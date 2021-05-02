@@ -278,7 +278,7 @@ class ModulatedConv2dWithoutNormWeight(nn.Module):
 class NoiseInjection(nn.Module):
     def __init__(self):
         super().__init__()
-        self.weight = nn.Parameter(torch.Tensor([0.0123]))        # torch.zeros(1))
+        self.weight = nn.Parameter(torch.zeros(1))        # learn by training ...
 
     def forward(self, image):
         # batch, _, height, width = image.shape
