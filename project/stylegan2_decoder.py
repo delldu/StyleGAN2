@@ -278,19 +278,14 @@ class ModulatedConv2dWithoutNormWeight(nn.Module):
 class NoiseInjection(nn.Module):
     def __init__(self):
         super().__init__()
-
-        self.weight = nn.Parameter(torch.zeros(1))
+        self.weight = nn.Parameter(torch.Tensor([0.0123]))        # torch.zeros(1))
 
     def forward(self, image):
-        batch, _, height, width = image.shape
+        # batch, _, height, width = image.shape
         # noise = image.new_empty(batch, 1, height, width).normal_()
         # Onnx does not support new_empty and normal_, so we develop it
-        noise = torch.rand_like(image)
-        mu = noise.mean()
-        var = noise.std()
-        noise = (noise - mu)/(var + 1e-6) * 0.90    # reduce noise ...
-
-        return image + self.weight * noise
+        noise = torch.randn_like(image)
+        return image + self.weight * noise * 0.90 # reduce noise ?
 
 
 class ConstantInput(nn.Module):
@@ -808,6 +803,9 @@ def python_sample(number):
     '''Sample.'''
     from model import model_setenv, model_device
 
+    # Random must be set before torch model, it is realy strange !!! ...
+    zcodes = torch.randn(number, 1, 1, 512)
+
     model_setenv()
     device = model_device()
     decoder = get_decoder()
@@ -823,7 +821,7 @@ def python_sample(number):
 
     images = []
     for i in range(number):
-        zcode = torch.randn(1, 1, 1, 512)
+        zcode = zcodes[i:i+1, :, :, :]
         zcode = zcode.to(device)
         with torch.no_grad():
             wcode = transformer(zcode)
@@ -835,8 +833,8 @@ def python_sample(number):
 
     nrow = int(math.sqrt(number) + 0.5) 
     image = grid_image(torch.cat(images, dim=0), nrow=nrow)
-    image.save("output/sample-9.png")
     image.show()
+    image.save("output/sample-9.png")
 
 
 def onnx_model_load(onnx_file):
@@ -862,6 +860,7 @@ def onnx_model_forward(onnx_model, input):
 
 def onnx_sample(number):
     # Random must be set before torch model, it is realy strange !!! ...
+    zcodes = torch.randn(number, 1, 1, 512)
 
     decoder = onnx_model_load("output/image_gandecoder.onnx")
     transformer = onnx_model_load("output/image_gantransformer.onnx")
@@ -869,9 +868,13 @@ def onnx_sample(number):
     print("Generating onnx samples ...")
     start_time = time.time()
 
+#     bad = torch.Tensor([0.04,-0.05,-1.74,0.12,0.83,0.21,0.40,0.51,1.94,1.19,1.17,0.43,-0.85,2.37,-0.71,-1.39,-1.10,0.07,0.34,0.00,0.31,0.37,-2.07,0.00,-0.60,-0.96,-0.38,-0.35,-0.06,0.13,-1.68,0.57,-0.11,-1.36,-0.71,-0.53,0.24,0.27,-0.72,-1.61,-0.23,1.47,1.21,2.23,-1.90,0.32,-0.47,-1.28,-0.60,0.35,1.71,-0.62,0.52,-1.33,0.95,-0.66,0.13,-1.03,1.34,-0.68,1.91,-0.76,0.33,-0.53,-0.35,-0.92,-2.00,-0.27,0.30,0.20,1.01,0.03,-0.47,1.35,-0.12,-0.00,1.62,0.32,2.51,0.06,0.77,0.15,1.79,0.90,-0.24,0.05,1.15,0.11,-0.53,-0.44,2.07,-0.25,1.94,0.24,0.17,2.58,-1.56,-0.80,-0.56,-0.30,-0.96,0.01,1.74,1.04,-1.79,0.73,-0.43,-0.39,0.12,0.60,-1.54,-0.32,-0.47,-2.44,0.42,-0.92,0.86,-0.34,1.54,-1.07,-0.34,0.51,0.56,-1.87,0.35,0.03,-0.92,0.34,-1.09,-0.15,-1.02,-0.67,-1.02,-1.94,0.00,-0.39,-0.85,1.11,-0.18,1.44,-0.50,2.39,-1.88,-1.37,0.27,-1.22,-0.11,1.32,0.50,-1.62,1.01,1.23,0.36,0.64,-1.64,0.14,-1.22,0.22,-1.39,0.75,-1.70,-1.14,1.02,-0.83,-0.45,-1.44,2.15,-0.29,-1.17,-0.21,-0.23,0.12,0.92,1.04,-1.61,-1.90,2.14,-1.01,0.20,1.11,-0.45,-1.46,-0.65,1.23,0.28,-0.82,-0.16,1.20,-0.47,0.31,0.60,-0.37,1.82,-0.82,-0.96,-1.14,-0.09,0.08,2.12,1.09,-0.98,1.21,-0.70,-0.17,1.45,-0.50,-1.45,1.40,-0.37,1.19,-3.06,1.20,0.92,-1.83,0.72,0.70,-0.75,0.93,0.14,0.39,0.97,-0.36,0.88,-0.07,-0.43,-1.56,1.93,0.03,2.11,-0.57,-0.55,-0.25,1.20,0.19,1.24,-0.31,0.86,0.22,-0.46,-0.48,-0.36,1.01,-1.03,0.20,1.05,-0.45,1.03,1.38,1.72,0.41,-1.00,0.42,1.05,2.35,0.38,-0.25,-0.88,0.09,0.30,1.45,-1.63,-0.87,-0.39,-0.86,0.66,-0.55,-0.21,-0.94,1.12,0.13,1.10,1.13,0.70,-0.30,-1.46,1.50,1.02,0.11,-1.59,-0.53,0.64,-1.15,1.35,-0.98,-0.84,-0.72,-1.11,0.10,2.08,-0.37,2.06,-0.24,1.63,-0.73,-0.03,-1.04,0.31,-2.15,0.61,-1.13,-0.56,0.07,1.21,-2.38,-1.23,-0.30,0.50,-0.06,2.54,-0.04,-1.07,-1.12,1.17,0.11,0.03,0.26,-0.29,1.69,0.51,-0.84,-0.37,-0.32,-1.23,0.94,0.06,0.69,1.01,0.22,-0.10,-2.64,-0.74,0.33,-0.33,0.16,-1.12,-0.42,0.84,0.16,1.41,-0.13,1.86,0.03,0.37,0.98,0.24,0.51,0.13,-1.58,1.03,-0.30,1.10,-0.50,0.46,0.48,-0.25,0.08,0.35,-0.42,-0.42,0.82,1.17,-0.04,-0.36,0.51,0.04,-1.17,-2.64,1.25,-0.50,-0.33,1.33,0.71,1.87,-0.55,0.26,-1.42,1.73,-0.84,2.50,-0.13,1.43,-0.46,-0.62,1.01,0.55,-0.16,0.43,-0.35,1.49,-1.13,-0.31,-0.82,0.94,-0.06,-0.28,0.79,-0.33,-0.67,0.01,0.24,0.11,-0.82,-0.71,-0.62,-0.02,1.41,0.91,-0.92,-0.26,-0.13,0.36,-0.90,1.40,0.02,-2.10,-0.37,0.71,0.37,0.43,1.41,2.03,-0.26,-0.62,2.33,-1.22,0.96,0.52,0.42,-0.84,2.54,-0.21,0.09,0.28,-0.85,-0.93,0.27,-0.53,-0.33,0.35,-0.47,0.76,-0.10,0.03,0.15,0.22,-0.63,0.16,0.68,1.61,-0.35,0.72,-0.96,0.67,0.25,-0.03,0.26,-0.21,-2.23,0.78,0.19,0.96,-1.52,1.85,1.49,-1.41,-0.92,0.73,-0.97,0.98,-0.58,-1.44,-0.21,-0.43,1.24,-0.31,-1.02,-0.26,-0.43,-0.86,-1.37,0.70,-0.44,0.29,0.15,-1.03,-0.38,1.38,0.90,1.41,0.77,-1.23,-0.72,-1.19,0.53,-0.03,-0.28,0.42,0.15,-0.39,-2.07,-0.09,1.15,-0.16,1.77,0.28,-1.71,-0.82,-1.09,-0.43,1.21,0.68,-0.00]
+# )
+#     bad = bad.reshape(1, 1, 1, 512)
+
     images = []
     for i in range(number):
-        zcode = torch.randn(1, 1, 1, 512)
+        zcode = zcodes[i:i+1, :, :, :]
         wcode = onnx_model_forward(transformer, zcode)
         image = onnx_model_forward(decoder, wcode)
         images.append(image)
@@ -881,8 +884,8 @@ def onnx_sample(number):
 
     nrow = int(math.sqrt(number) + 0.5) 
     image = grid_image(torch.cat(images, dim=0), nrow=nrow)
-    image.save("output/sample-onnx-9.png")
     image.show()
+    image.save("output/sample-onnx-9.png")
 
 
 if __name__ == '__main__':
