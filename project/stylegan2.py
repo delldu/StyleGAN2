@@ -10,6 +10,7 @@ import time
 import torchvision.utils as utils
 from PIL import Image
 import torchvision.transforms as transforms
+from model import model_setenv, model_device
 
 class FusedLeakyReLU(nn.Module):
     def __init__(self, channel, negative_slope=0.2, scale=2 ** 0.5):
@@ -401,10 +402,10 @@ class StyleGAN2Transformer(nn.Module):
         # [9, 1, 1, 512] --> [9, 512]
         simple_wcode = self.style(simple_zcode)
 
-        temp_mean_wcode = self.style(self.mean_wcode.to(simple_wcode.device))
+        mean_wcode = self.style(self.mean_wcode.to(simple_wcode.device))
 
         # Truncation for reducing strange faces ...
-        simple_wcode = 0.75*simple_wcode + 0.25 * temp_mean_wcode
+        simple_wcode = 0.75*simple_wcode + 0.25 * mean_wcode
 
         wcode = simple_wcode.unsqueeze(1).unsqueeze(1)
 
@@ -452,12 +453,8 @@ class Generator(nn.Module):
             self.channels[4], self.channels[4], 3, w_space_dim, blur_kernel=blur_kernel)
         self.to_rgb1 = ToRGB(self.channels[4], w_space_dim)
 
-
-        convs_list = []
-        # self.convs = nn.ModuleList()
-
-        to_rgbs_list = []
-        # self.to_rgbs = nn.ModuleList()
+        self.convs = nn.ModuleList()
+        self.to_rgbs = nn.ModuleList()
         self.noises = nn.Module()
 
         in_channel = self.channels[4]
@@ -471,20 +468,16 @@ class Generator(nn.Module):
         for i in range(3, self.log_size + 1):
             out_channel = self.channels[2 ** i]
 
-            convs_list.append(
+            self.convs.append(
                 StyledConvWithUpsample(in_channel, out_channel, 3, w_space_dim, blur_kernel=blur_kernel)
             )
 
-            convs_list.append(
+            self.convs.append(
                 StyledConv(out_channel, out_channel, 3, w_space_dim, blur_kernel=blur_kernel)
             )
-            # self.to_rgbs.append(ToRGBWithUpsample(out_channel, w_space_dim))
-            to_rgbs_list.append(ToRGBWithUpsample(out_channel, w_space_dim))
+            self.to_rgbs.append(ToRGBWithUpsample(out_channel, w_space_dim))
 
             in_channel = out_channel
-
-        self.convs = nn.Sequential(*convs_list)
-        self.to_rgbs = nn.Sequential(*to_rgbs_list)
 
         # self.eigvectors = torch.zeros(w_space_dim, w_space_dim)
 
@@ -761,7 +754,7 @@ def export_torch():
 
     print("================> Torch Script Tansformer ...")
     # ------- For Transformer -----------------------
-    script_file = "output/image_gantransformer.pt"
+    script_file = "output/FaceganTransformer.pt.pt"
 
     # 1. Load model
     model = get_transformer()
@@ -777,7 +770,7 @@ def export_torch():
     print("================> Torch Script Decoder ...")
 
     # ------- For Decoder -----------------------
-    script_file = "output/image_gandecoder.pt"
+    script_file = "output/FaceganDecoder.pt.pt"
 
     # 1. Load model
     print("Loading model ...")
@@ -801,7 +794,6 @@ def grid_image(tensor, nrow=3):
 
 def python_sample(number):
     '''Sample.'''
-    from model import model_setenv, model_device
 
     # Random must be set before torch model, it is realy strange !!! ...
     zcodes = torch.randn(number, 1, 1, 512)
@@ -845,7 +837,7 @@ def onnx_model_load(onnx_file):
     sess_options.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_EXTENDED
 
     onnx_model = onnxruntime.InferenceSession(onnx_file, sess_options)
-    # onnx_model.set_providers(['CUDAExecutionProvider'])
+    onnx_model.set_providers(['CUDAExecutionProvider'])
     print("Onnx model engine: ", onnx_model.get_providers(), "Device: ", onnxruntime.get_device())
 
     return onnx_model
@@ -862,6 +854,9 @@ def onnx_sample(number):
     # Random must be set before torch model, it is realy strange !!! ...
     zcodes = torch.randn(number, 1, 1, 512)
 
+    model_setenv()
+    device = model_device()
+
     decoder = onnx_model_load("output/image_gandecoder.onnx")
     transformer = onnx_model_load("output/image_gantransformer.onnx")
 
@@ -874,10 +869,11 @@ def onnx_sample(number):
 
     images = []
     for i in range(number):
-        zcode = zcodes[i:i+1, :, :, :]
+        zcode = zcodes[i:i+1, :, :, :].to(device)
         wcode = onnx_model_forward(transformer, zcode)
         image = onnx_model_forward(decoder, wcode)
-        images.append(image)
+
+        images.append(image.cpu())
     
     spend_time = time.time() - start_time
     print("Spend time: {:.2f} seconds".format(spend_time))
@@ -917,5 +913,5 @@ if __name__ == '__main__':
         verify_onnx()
 
     if args.sample:
-        onnx_sample(9)
+        # onnx_sample(9)
         python_sample(9)

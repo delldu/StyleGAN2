@@ -41,7 +41,7 @@ def make_image(tensor):
     )
 
 if __name__ == "__main__":
-    device = "cuda"
+    device = "cpu"
 
     parser = argparse.ArgumentParser(
         description="Image projector to the generator latent spaces"
@@ -122,11 +122,21 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         latent_in = g_ema.mean_latent(8196)
+    # key functions
     latent_in.requires_grad = True
 
     percept = lpips.PerceptualLoss(
         model="net-lin", net="vgg", use_gpu=device.startswith("cuda")
     )
+
+    # Save trace model ...
+    # model = percept.model.net
+    # model = model.eval()
+    # dummy_input1 = torch.randn(1, 3, 256, 256)
+    # dummy_input2 = torch.randn(1, 3, 256, 256)
+    # traced_script_module = torch.jit.trace(model, (dummy_input1, dummy_input2), _force_outplace=True)
+    # traced_script_module.save("/tmp/FaceganPercept.pt")
+
 
     optimizer = optim.Adam([latent_in], lr=args.lr)
 
@@ -136,7 +146,8 @@ if __name__ == "__main__":
     for i in pbar:
         t = i / args.step
         lr = get_lr(t, args.lr)
-        optimizer.param_groups[0]["lr"] = lr
+        # xxxx8888
+        # optimizer.param_groups[0]["lr"] = lr
         noise_strength = args.noise * max(0, 1 - t / args.noise_ramp) ** 2
         latent_n = latent_noise(latent_in, noise_strength)
 
@@ -153,7 +164,10 @@ if __name__ == "__main__":
             img_gen = img_gen.mean([3, 5])
 
         p_loss = percept(img_gen, imgs).sum()
-        pdb.set_trace()
+        # (Pdb) img_gen.size()
+        # torch.Size([1, 3, 256, 256])
+        # (Pdb) imgs.size()
+        # torch.Size([1, 3, 256, 256])
 
         mse_loss = F.mse_loss(img_gen, imgs)
 

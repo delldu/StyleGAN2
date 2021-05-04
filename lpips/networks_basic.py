@@ -16,8 +16,6 @@ import lpips as util
 import pdb
 
 def spatial_average(in_tens, keepdim=True):
-    pdb.set_trace()
-
     return in_tens.mean([2,3],keepdim=keepdim)
 
 def upsample(in_tens, out_H=64): # assumes scale factor is same for H and W
